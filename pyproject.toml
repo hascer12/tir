@@ -1,0 +1,13 @@
+[project]
+name = "tir"
+version = "1.0.0"
+description = "Браузер Тир"
+dependencies = [
+    "flet",
+    "requests",
+    "beautifulsoup4",
+]
+
+[tool.flet]
+org = "ru.hascer12"
+product = "Тир"
