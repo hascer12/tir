@@ -1,6 +1,7 @@
 name: Build APK
 on:
   push:
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -8,27 +9,50 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+
       - uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
+
       - uses: subosito/flutter-action@v2
         with:
           channel: 'stable'
+
       - name: Install Flet and Build APK
         run: |
           pip install flet requests beautifulsoup4
           flet build apk --yes
-      - name: Collect APK
+
+      - name: Find and collect APK
         run: |
+          echo "=== Searching for APK files ==="
+          find . -name "*.apk" -type f
+          echo "=== Checking common Flet output paths ==="
+          ls -la build/app/outputs/flutter-apk/ 2>/dev/null || true
+          ls -la dist/ 2>/dev/null || true
+          ls -la build/ 2>/dev/null || true
+
           mkdir -p out_apk
-          find build -name "*.apk" -exec cp {} out_apk/ \;
+          # Ищем во всех возможных местах
+          find . -path "./.git" -prune -o -name "*.apk" -type f -exec cp {} out_apk/ \;
+
+          echo "=== Collected APKs ==="
           ls -la out_apk/
+
+          # Если ничего не нашли — падаем с понятной ошибкой
+          if [ ! -f out_apk/*.apk ] 2>/dev/null; then
+            echo "ERROR: No APK files found!"
+            exit 1
+          fi
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Tir-APK
-          path: out_apk/*.apk
+          path: out_apk/
+          if-no-files-found: error
