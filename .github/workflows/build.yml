@@ -1,58 +1,42 @@
 name: Build APK
+
 on:
   push:
-    branches: [main]
+    branches: [ main ]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-
-      - name: Install Flet and Build APK
+      - name: Install dependencies
         run: |
+          pip install --upgrade pip
           pip install flet requests beautifulsoup4
-          flet build apk --yes
 
-      - name: Find and collect APK
+      - name: Build APK
+        run: flet build apk
+
+      - name: List build directory
         run: |
-          echo "=== Searching for APK files ==="
+          echo "=== Searching for APK ==="
           find . -name "*.apk" -type f
-          echo "=== Checking common Flet output paths ==="
-          ls -la build/app/outputs/flutter-apk/ 2>/dev/null || true
-          ls -la dist/ 2>/dev/null || true
-          ls -la build/ 2>/dev/null || true
-
-          mkdir -p out_apk
-          # Ищем во всех возможных местах
-          find . -path "./.git" -prune -o -name "*.apk" -type f -exec cp {} out_apk/ \;
-
-          echo "=== Collected APKs ==="
-          ls -la out_apk/
-
-          # Если ничего не нашли — падаем с понятной ошибкой
-          if [ ! -f out_apk/*.apk ] 2>/dev/null; then
-            echo "ERROR: No APK files found!"
-            exit 1
-          fi
+          echo "=== End search ==="
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Tir-APK
-          path: out_apk/
+          name: tir-app
+          path: |
+            build/app/outputs/flutter-apk/*.apk
+            build/apk/release/*.apk
+            **/*.apk
           if-no-files-found: error
