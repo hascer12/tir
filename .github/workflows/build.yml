@@ -21,14 +21,14 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: '3.47.9'
           channel: 'stable'
 
       - name: Install Flet
         run: pip install flet
 
       - name: Build APK
-        run: flet build apk
+        run: yes | flet build apk
 
       - name: Find APK
         id: find
@@ -40,8 +40,8 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: ${{ steps.find.outputs.apk }}
-          tag_name: v1.2
-          name: Tir Browser v1.2
-          body: Готовое приложение
+          tag_name: v1.3
+          name: Tir Browser v1.3
+          body: Готовое приложение для Android
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
