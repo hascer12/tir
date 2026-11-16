@@ -33,14 +33,11 @@ jobs:
           pip install --upgrade pip
           pip install flet requests beautifulsoup4
 
-      - name: Build APK
-        run: echo "y" | flet build apk
-
-      - name: Find APK
+      - name: Build APK and save it
         run: |
-          APK=$(find . -name "*.apk" -type f | head -n 1)
-          echo "Found: $APK"
-          cp "$APK" ./FINAL_APP.apk
+          echo "y" | flet build apk
+          echo "=== Копируем APK ==="
+          find build -name "*.apk" -type f -exec cp {} ./FINAL_APP.apk \;
           ls -lh ./FINAL_APP.apk
 
       - name: Upload APK
