@@ -2,6 +2,7 @@
 name = "tir"
 version = "1.0.0"
 description = "Браузер Тир"
+requires-python = ">=3.10"
 dependencies = [
     "flet",
     "requests",
@@ -11,3 +12,6 @@ dependencies = [
 [tool.flet]
 org = "ru.hascer12"
 product = "Тир"
+
+[tool.flet.android]
+permissions = ["INTERNET"]
