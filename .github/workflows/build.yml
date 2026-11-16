@@ -1,4 +1,4 @@
-name: Build APK
+name: Build APK and Create Release
 
 on:
   push:
@@ -9,15 +9,39 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - run: pip install flet
-      - run: flet build apk
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+
+      - name: Install Flet
+        run: pip install flet
+
+      - name: Build APK
+        run: flet build apk
+
+      - name: Find APK
+        id: find
+        run: |
+          APK=$(find build -name "*.apk" | head -1)
+          echo "apk=$APK" >> $GITHUB_OUTPUT
+
       - name: Upload to Release
         uses: softprops/action-gh-release@v1
         with:
-          files: build/app/outputs/flutter-apk/app-release.apk
+          files: ${{ steps.find.outputs.apk }}
           tag_name: v1.2
+          name: Tir Browser v1.2
+          body: Готовое приложение
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
