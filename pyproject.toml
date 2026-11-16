@@ -1,12 +1,12 @@
 [tool.poetry]
-name = "tir-browser"
-version = "1.4.0"
+name = "tir"
+version = "1.6.0"
 description = "Tir Browser"
 authors = ["hascer12"]
 
 [tool.poetry.dependencies]
 python = "^3.11"
-flet = "^0.27.0"
+flet = "*"
 requests = "*"
 beautifulsoup4 = "*"
 lxml = "*"
