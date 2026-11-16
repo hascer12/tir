@@ -24,14 +24,16 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.54.0'
+          flutter-version: '3.47.9'
           channel: 'stable'
 
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses || true
 
-      - name: Install dependencies
-        run: pip install flet requests beautifulsoup4 lxml
+      - name: Install Poetry and dependencies
+        run: |
+          pip install poetry
+          poetry install
 
       - name: Build APK
         run: yes | flet build apk
@@ -47,9 +49,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.find.outputs.apk }}
-          tag_name: v2.1
-          name: Tir Browser v2.1 - Android 16
-          body: Версия с поддержкой Android 16 (Flutter 3.54.0)
+          tag_name: v2.2
+          name: Tir Browser v2.2
+          body: Версия с зависимостями внутри APK
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
