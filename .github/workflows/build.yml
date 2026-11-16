@@ -28,7 +28,7 @@ jobs:
         run: pip install flet requests beautifulsoup4 lxml
 
       - name: Build APK
-        run: yes | flet build apk --packages "requests,beautifulsoup4,lxml"
+        run: yes | flet build apk
 
       - name: Upload APK as artifact
         uses: actions/upload-artifact@v4
