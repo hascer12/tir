@@ -1,7 +1,45 @@
-- name: Find APK and copy to root
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+
+      - name: Install Flet
+        run: |
+          pip install --upgrade pip
+          pip install flet requests beautifulsoup4
+
+      - name: Build APK
+        run: echo "y" | flet build apk
+
+      - name: Find APK
         run: |
           APK=$(find . -name "*.apk" -type f | head -n 1)
-          echo "Найден файл: $APK"
+          echo "Found: $APK"
           cp "$APK" ./FINAL_APP.apk
           ls -lh ./FINAL_APP.apk
 
