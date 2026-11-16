@@ -25,9 +25,7 @@ jobs:
           channel: 'stable'
 
       - name: Install dependencies
-        run: |
-          pip install poetry
-          poetry install
+        run: pip install flet requests beautifulsoup4 lxml
 
       - name: Build APK
         run: yes | flet build apk
@@ -42,8 +40,8 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: ${{ steps.find.outputs.apk }}
-          tag_name: v1.5
-          name: Tir Browser v1.5
-          body: Исправленная версия
+          tag_name: v1.6
+          name: Tir Browser v1.6
+          body: Исправленная версия с зависимостями
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
