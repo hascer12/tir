@@ -1,48 +1,13 @@
-name: Build APK
-
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
-
-      - name: Set up Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '17'
-
-      - name: Set up Flutter 3.47.9
-        uses: subosito/flutter-action@v2
-        with:
-          channel: 'stable'
-          flutter-version: '3.47.9'
-
-      - name: Install Flet and dependencies
+- name: Find APK and copy to root
         run: |
-          pip install --upgrade pip
-          pip install flet requests beautifulsoup4
-
-      - name: Build APK (non-interactive)
-        run: |
-          echo "y" | flet build apk
+          APK=$(find . -name "*.apk" -type f | head -n 1)
+          echo "Найден файл: $APK"
+          cp "$APK" ./FINAL_APP.apk
+          ls -lh ./FINAL_APP.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: tir-app
-          path: |
-            build/app/outputs/flutter-apk/*.apk
-            build/apk/release/*.apk
-          if-no-files-found: warn
+          path: ./FINAL_APP.apk
+          if-no-files-found: error
