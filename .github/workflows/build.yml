@@ -4,6 +4,9 @@ on:
   push:
     branches: [ main ]
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -40,8 +43,8 @@ jobs:
         uses: softprops/action-gh-release@v1
         with:
           files: ${{ steps.find.outputs.apk }}
-          tag_name: v1.6
-          name: Tir Browser v1.6
-          body: Исправленная версия с зависимостями
+          tag_name: v1.7
+          name: Tir Browser v1.7
+          body: Исправленная версия с правами
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
