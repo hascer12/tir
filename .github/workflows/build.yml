@@ -1,8 +1,11 @@
-name: Build APK
+name: Build APK and Release
 
 on:
   push:
     branches: [ main ]
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -33,8 +36,20 @@ jobs:
       - name: Build APK
         run: yes | flet build apk
 
-      - name: Upload APK as artifact
-        uses: actions/upload-artifact@v4
+      - name: Find APK
+        id: find
+        run: |
+          APK=$(find build -name "*.apk" | head -1)
+          echo "apk=$APK" >> $GITHUB_OUTPUT
+          echo "Found: $APK"
+
+      - name: Create Release with APK
+        uses: softprops/action-gh-release@v2
         with:
-          name: tir-browser-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          files: ${{ steps.find.outputs.apk }}
+          tag_name: v2.0
+          name: Tir Browser v2.0
+          body: Рабочая версия — исправлены лицензии Android и добавлены зависимости
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
