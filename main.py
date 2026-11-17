@@ -15,21 +15,21 @@ def http_get(url, params=None, headers=None, timeout=7.5):
     try:
         r = SESSION.get(url, params=params, headers=headers, timeout=timeout, verify=False)
         if r:
-            r.encoding = 'utf-8'
+            if not r.encoding or r.encoding.lower() in ('iso-8859-1', 'latin-1', 'ascii'):
+                r.encoding = r.apparent_encoding or 'utf-8'
         return r
-    except Exception:
+    except Exception as e:
         return None
 
-VERSION = "v14.9"
+VERSION = "v15.1"
 H_WEB = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
-    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-    "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Upgrade-Insecure-Requests": "1"
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "ru-RU,ru;q=0.9",
+    "Accept-Encoding": "gzip, deflate",
+    "Connection": "keep-alive"
 }
-AD = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","казино","ставки","войти","регистрация")
+AD = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","казино","ставки","войти","регистрация","smartcaptcha","yandex.ru/support","enable-javascript")
 STOP = ("когда","где","кто","что","как","почему","зачем","сколько","какой","это","ли","в","на","по","о")
 KB = ("йцукенгшщзхъ","фывапролджэ","ячсмитьбю")
 HIST = ["Европейская норка","100 долларов","переведи breakthrough","250 * 48"]
@@ -80,18 +80,44 @@ def weather(q):
         except Exception: pass
     return ""
 
+def get_currency_rate(cur):
+    """Получить курс валюты через несколько API"""
+    # API 1: open.er-api.com
+    try:
+        r = http_get(f"https://open.er-api.com/v6/latest/{cur}")
+        if r and r.status_code==200:
+            v = r.json().get("rates",{}).get("RUB",0)
+            if v: return v
+    except: pass
+    # API 2: exchangerate-api.com
+    try:
+        r = http_get(f"https://api.exchangerate-api.com/v4/latest/{cur}")
+        if r and r.status_code==200:
+            v = r.json().get("rates",{}).get("RUB",0)
+            if v: return v
+    except: pass
+    # API 3: frankfurter.app
+    try:
+        r = http_get(f"https://api.frankfurter.app/latest?from={cur}&to=RUB")
+        if r and r.status_code==200:
+            v = r.json().get("rates",{}).get("RUB",0)
+            if v: return v
+    except: pass
+    return 0
+
 def tools(q):
     ql = q.lower().strip()
-    if re.search(r"(дол|usd|евр|eur|юан|cny)",ql) and any(w in ql for w in ("курс","валют","рубл","скольк")):
+    # Курс валют
+    if re.search(r"(дол|usd|евр|eur|юан|cny)",ql) and any(w in ql for w in ("курс","валют","рубл","скольк","стои","цен")):
         m = re.search(r"(\d+(?:[.,]\d+)?)",ql)
         amt = float(m.group(1).replace(",",".")) if m else 1.0
         cur = "EUR" if re.search(r"(евр|eur)",ql) else ("CNY" if re.search(r"(юан|cny)",ql) else "USD")
-        try:
-            r = http_get("https://open.er-api.com/v6/latest/"+cur)
-            if r and r.status_code==200:
-                v = r.json().get("rates",{}).get("RUB",0)
-                if v: return f"{amt} {cur} = {round(amt*v,2)} RUB (курс {round(v,2)})"
-        except Exception: pass
+        val = get_currency_rate(cur)
+        if val > 0:
+            return f"{amt} {cur} = {round(amt*val,2)} RUB (курс {round(val,2)} руб.)"
+        else:
+            return f"Курс {cur} не удалось получить (API недоступны)"
+    # Перевод
     if ql.startswith(("переведи ","как будет ","что значит ")) or re.fullmatch(r"[a-zA-Z\s'.,!?-]{2,60}",q.strip()):
         txt = re.sub(r"^(переведи|как будет|что значит)\s+","",q.strip(),flags=re.I).strip()
         if txt:
@@ -146,42 +172,21 @@ def wiki(dom,src,q):
     except Exception: pass
     return cards
 
-def yandex_search(q):
+def ramble_search(q):
     cards = []
     try:
-        r = http_get("https://m.yandex.ru/search",{"text":q,"lr":"213"},H_WEB)
+        r = http_get("https://nova.rambler.ru/search",{"query":q},H_WEB)
         if not r or r.status_code!=200 or not BeautifulSoup: return cards
         soup = BeautifulSoup(r.text,"html.parser")
         for a in soup.find_all("a",href=True):
             href = a.get("href","")
             if not href.startswith("http"): continue
-            bad = ["yandex.ru/search","yandex.ru/turbo","yabs.yandex","an.yandex","googleadservices","doubleclick","smartcaptcha"]
-            if any(b in href for b in bad): continue
+            if "rambler.ru" in href and "/search" in href: continue
+            if any(b in href for b in AD): continue
             t = a.get_text(" ",strip=True)
             if len(t)<10 or len(t)>200: continue
             if any(ad in (t+href).lower() for ad in AD): continue
-            cards.append({"s":"Яндекс","t":t,"u":href,"sn":""})
-            if len(cards)>=6: break
-    except Exception: pass
-    return cards
-
-def google_search(q):
-    cards = []
-    try:
-        r = http_get("https://www.google.com/search",{"q":q,"hl":"ru","gl":"ru"},H_WEB)
-        if not r or r.status_code!=200 or not BeautifulSoup: return cards
-        soup = BeautifulSoup(r.text,"html.parser")
-        for a in soup.find_all("a",href=True):
-            href = a.get("href","")
-            if not href.startswith("http"): continue
-            bad = ["google.com/search","google.com/webhp","google.com/preferences","google.com/policies","accounts.google","support.google"]
-            if any(b in href for b in bad): continue
-            if "/url?q=" in href:
-                href = href.split("/url?q=")[1].split("&")[0]
-            t = a.get_text(" ",strip=True)
-            if len(t)<10 or len(t)>200: continue
-            if any(ad in (t+href).lower() for ad in AD): continue
-            cards.append({"s":"Google","t":t,"u":href,"sn":""})
+            cards.append({"s":"Rambler","t":t,"u":href,"sn":""})
             if len(cards)>=6: break
     except Exception: pass
     return cards
@@ -223,10 +228,12 @@ def smart_fact_answer(q, text_pool):
         return " ".join(dict.fromkeys(s for _, s in scored[:2]))
     return sents[0] if sents else ""
 
-def build_best_answer(uq, mixed, c2, c3):
+def build_best_answer(uq, mixed):
     wiki_text = ""
-    for item in (c3 or [])[:3]:
-        cand = read_wiki_fast(item.get("title",""), 900)
+    for item in (mixed or [])[:5]:
+        title = item.get("title","")
+        if not title: continue
+        cand = read_wiki_fast(title, 900)
         if cand and "уменьшительная форма" not in cand.lower() and "топоним" not in cand.lower() and len(cand)>80:
             wiki_text = clean_ans_text(cand)
             break
@@ -240,18 +247,29 @@ def build_best_answer(uq, mixed, c2, c3):
     return "Точный ответ не найден."
 
 def answer(q):
-    res = {"c1":[],"c2":[],"c3":[],"c4":[],"c5":[]}
-    def w1(): res["c1"] = wiki("ru.wikipedia.org","Вики",q)
-    def w2(): res["c2"] = wiki("ru.wiktionary.org","Словарь",q)
-    def w3(): res["c3"] = wiki("ru.ruwiki.ru","Рунет",q)
-    def w4(): res["c4"] = yandex_search(q)
-    def w5(): res["c5"] = google_search(q)
-    ts = [threading.Thread(target=f) for f in (w1,w2,w3,w4,w5)]
+    res = {"wiki":[],"dict":[],"runet":[],"rambler":[]}
+    def w1(): res["wiki"] = wiki("ru.wikipedia.org","Вики",q)
+    def w2(): res["dict"] = wiki("ru.wiktionary.org","Словарь",q)
+    def w3(): res["runet"] = wiki("ru.ruwiki.ru","Рунет",q)
+    def w4(): res["rambler"] = ramble_search(q)
+    ts = [threading.Thread(target=f) for f in (w1,w2,w3,w4)]
     for t in ts: t.start()
     for t in ts: t.join(7)
-    allc = res["c1"]+res["c2"]+res["c3"]+res["c4"]+res["c5"]
-    ans = build_best_answer(q, allc, res["c2"], res["c3"])
-    lines = ["══ БЫСТРЫЙ ОТВЕТ ══","",(" "+ans) if ans else "Точный ответ не найден.","","══ ИСТОЧНИКИ ══",""]
+    
+    allc = res["wiki"]+res["dict"]+res["runet"]+res["rambler"]
+    ans = build_best_answer(q, allc)
+    
+    # ДИАГНОСТИКА
+    diag = [
+        f"Вики: {len(res['wiki'])}",
+        f"Словарь: {len(res['dict'])}",
+        f"Рунет: {len(res['runet'])}",
+        f"Rambler: {len(res['rambler'])}"
+    ]
+    
+    lines = ["══ БЫСТРЫЙ ОТВЕТ ══","",(" "+ans) if ans else "Точный ответ не найден.","",
+             "══ ДИАГНОСТИКА ══"," | ".join(diag),"",
+             "══ ИСТОЧНИКИ ══",""]
     for c in allc[:10]:
         lines.append(f"[{c['s']}] {c['t']}")
         lines.append(c["u"][:52])
@@ -294,9 +312,16 @@ def main(page: ft.Page):
         page.update()
         
         def worker():
-            r = math(q) or weather(q) or tools(q)
-            if r: txt = "══ ОТВЕТ ══\n\n "+r
-            else: txt = answer(q)
+            # Проверяем tools() первым
+            t = tools(q)
+            if t:
+                txt = "══ ОТВЕТ ══\n\n "+t
+            else:
+                m = math(q)
+                w = weather(q)
+                if m: txt = "══ ОТВЕТ ══\n\n "+m
+                elif w: txt = "══ ОТВЕТ ══\n\n "+w
+                else: txt = answer(q)
             out.value = txt
             out.color = "#E2E8F0"
             page.update()
