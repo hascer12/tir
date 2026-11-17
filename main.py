@@ -119,8 +119,6 @@ def check_typo(q):
     if gq!=qc.lower() and not word_exists(qc) and word_exists(gq): return gq, True
     return qc, False
 
-# ============ ПОИСКОВЫЕ ИСТОЧНИКИ ============
-
 def wiki(dom,src,q):
     cards = []
     try:
@@ -140,16 +138,279 @@ def wiki(dom,src,q):
     return cards
 
 def yandex_search(q):
-    """Яндекс через HTML-парсинг (как Яндекс.Браузер)"""
+    """Яндекс поиск через HTML"""
     cards = []
     try:
         r = http_get("https://yandex.ru/search",{"text":q,"lr":"213"},H_WEB)
         if not r or r.status_code!=200 or not BeautifulSoup: return cards
         soup = BeautifulSoup(r.text,"html.parser")
-        for item in soup.select(".serp-item, .OrganicTitle, .serp-item__title"):
-            a = item.find("a", href=True) if item.name!="a" else item
-            if not a: continue
+        for a in soup.find_all("a",href=True):
             href = a.get("href","")
-            if href.startswith("/"): href = "https://yandex.ru"+href
             if not href.startswith("http"): continue
-            if any(b in href for b in ("yandex.ru/search","yandex.
+            bad = ["yandex.ru/search","yandex.ru/turbo","yabs.yandex","an.yandex","googleadservices","doubleclick"]
+            if any(b in href for b in bad): continue
+            t = a.get_text(" ",strip=True)
+            if len(t)<15 or len(t)>200: continue
+            if any(ad in (t+href).lower() for ad in AD): continue
+            cards.append({"s":"Яндекс","t":t,"u":href,"sn":""})
+            if len(cards)>=6: break
+    except Exception: pass
+    return cards
+
+def ramble_search(q):
+    """Rambler поиск"""
+    cards = []
+    try:
+        r = http_get("https://nova.rambler.ru/search",{"query":q},H_WEB)
+        if not r or r.status_code!=200 or not BeautifulSoup: return cards
+        soup = BeautifulSoup(r.text,"html.parser")
+        for a in soup.find_all("a",href=True):
+            href = a.get("href","")
+            if not href.startswith("http"): continue
+            if "rambler.ru" in href and "/search" in href: continue
+            t = a.get_text(" ",strip=True)
+            if len(t)<15 or len(t)>200: continue
+            if any(ad in (t+href).lower() for ad in AD): continue
+            cards.append({"s":"Rambler","t":t,"u":href,"sn":""})
+            if len(cards)>=6: break
+    except Exception: pass
+    return cards
+
+def read_wiki_fast(title, limit=3500):
+    if not title: return ""
+    try:
+        p = {"action":"query","prop":"extracts","explaintext":"1","exintro":"1" if limit<800 else "0","titles":title,"format":"json"}
+        r = http_get("https://ru.wikipedia.org/w/api.php",p)
+        if not r or r.status_code!=200: return ""
+        pages = r.json().get("query",{}).get("pages",{})
+        for pid in pages:
+            ext = pages[pid].get("extract","")
+            if ext and len(ext.strip())>20: return ext.strip()[:limit]
+    except Exception: pass
+    return ""
+
+def clean_ans_text(t):
+    t = re.sub(r"\[[^\]]+\]|◆|\?\?|Корень:[^.]+\.|Существительное\.", " ", t)
+    return re.sub(r"\s+", " ", t).strip()
+
+def smart_fact_answer(q, text_pool):
+    if not text_pool: return ""
+    need_num = any(w in q.lower() for w in ("сколько","возраст","лет","года","вес","рост","длина","скорость","температура","когда","год"))
+    tws = [w[:5] for w in topic(q).split() if len(w)>2]
+    sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text_pool) if 18<=len(s)<=280]
+    if not need_num and sents:
+        for sc in sents:
+            if any(tw in sc.lower() for tw in tws) and (" — " in sc or " - " in sc or " это " in sc.lower()): return sc
+        return sents[0] if sents else ""
+    scored = []
+    for sc in sents:
+        score = sum(3 for tw in tws if tw in sc.lower())
+        if need_num and re.search(r"\d", sc):
+            score += 9 if re.search(r"\b(лет|год|года|году|месяц|дней|дня|час|мин|сек|кг|г|тонн|км|м|см|мм|%|тыс|млн|млрд)\b", sc.lower()) else 5
+        if score>=5: scored.append((score, sc))
+    if scored:
+        scored.sort(key=lambda x: x[0], reverse=True)
+        return " ".join(dict.fromkeys(s for _, s in scored[:2]))
+    return sents[0] if sents else ""
+
+def build_best_answer(uq, mixed, c2, c3):
+    wiki_text = ""
+    for item in (c3 or [])[:3]:
+        cand = read_wiki_fast(item.get("title",""), 900)
+        if cand and "уменьшительная форма" not in cand.lower() and "топоним" not in cand.lower() and len(cand)>80:
+            wiki_text = clean_ans_text(cand)
+            break
+    snips = [clean_ans_text(c.get("snip","")) for c in mixed if len(c.get("snip","").strip())>30 and "Существительное" not in c.get("snip","")]
+    fact = smart_fact_answer(uq, (wiki_text + " " + " ".join(snips)).strip())
+    if fact and len(fact)>35: return clean_ans_text(fact)
+    if wiki_text:
+        sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", wiki_text) if len(s.strip())>25]
+        return " ".join(sents[:2]) if sents else wiki_text[:350]
+    if snips: return " ".join(snips[:2])
+    return "Точный ответ не найден. Откройте любую ссылку ниже."
+
+def answer(q):
+    res = {"c1":[],"c2":[],"c3":[],"c4":[],"c5":[]}
+    def w1(): res["c1"] = wiki("ru.wikipedia.org","Вики",q)
+    def w2(): res["c2"] = wiki("ru.wiktionary.org","Словарь",q)
+    def w3(): res["c3"] = wiki("ru.ruwiki.ru","Рунет",q)
+    def w4(): res["c4"] = yandex_search(q)
+    def w5(): res["c5"] = ramble_search(q)
+    ts = [threading.Thread(target=f) for f in (w1,w2,w3,w4,w5)]
+    for t in ts: t.start()
+    for t in ts: t.join(7)
+    allc = res["c1"]+res["c2"]+res["c3"]+res["c4"]+res["c5"]
+    ans = build_best_answer(q, allc, res["c2"], res["c3"])
+    lines = ["══ БЫСТРЫЙ ОТВЕТ ══","",(" "+ans) if ans else "Точный ответ не найден.","","══ ИСТОЧНИКИ ══",""]
+    for c in allc[:10]:
+        lines.append(f"[{c['s']}] {c['t']}")
+        lines.append(c["u"][:52])
+        if c.get("sn"): lines.append(c["sn"][:120])
+        lines.append("")
+    if not allc: lines.append("Ничего не найдено.")
+    return "\n".join(lines)
+
+# ==================== FLET ИНТЕРФЕЙС ====================
+
+def main(page: ft.Page):
+    page.title = "Браузер Тир "+VERSION
+    page.bgcolor = "#0F172A"
+    page.padding = 0
+    
+    ent = ft.TextField(
+        label="Запрос или адрес сайта",
+        bgcolor="#1E293B",
+        color="#F8FAFC",
+        cursor_color="#FFF",
+        border_color="#334155",
+        focused_border_color="#3B82F6",
+        expand=True,
+        on_submit=lambda e: do_search()
+    )
+    
+    btn_x = ft.IconButton(
+        icon=ft.Icons.CLOSE,
+        icon_color="#F8FAFC",
+        icon_size=20,
+        bgcolor="#334155",
+        on_click=lambda e: (setattr(ent,"value",""), ent.focus())
+    )
+    
+    btn_find = ft.ElevatedButton(
+        "НАЙТИ",
+        on_click=lambda e: do_search(),
+        bgcolor="#3B82F6",
+        color="#FFF",
+        height=50
+    )
+    
+    btn_back = ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color="#F8FAFC", icon_size=24, bgcolor="#334155", visible=False)
+    btn_fwd = ft.IconButton(icon=ft.Icons.ARROW_FORWARD, icon_color="#F8FAFC", icon_size=24, bgcolor="#334155", visible=False)
+    btn_reload = ft.IconButton(icon=ft.Icons.REFRESH, icon_color="#F8FAFC", icon_size=24, bgcolor="#334155", visible=False)
+    btn_yt = ft.IconButton(icon=ft.Icons.PLAY_CIRCLE, icon_color="#FF0000", icon_size=24, bgcolor="#334155", visible=False, tooltip="Открыть в YouTube")
+    
+    header = ft.Container(
+        content=ft.Row([
+            ft.Text("Браузер Тир "+VERSION, color="#F8FAFC", size=14, weight=ft.FontWeight.BOLD),
+            ft.ElevatedButton("ЗАКЛАДКИ", on_click=lambda e: show_bookmarks(), bgcolor="#334155", color="#FBBF24"),
+            ft.ElevatedButton("ВЫХОД", on_click=lambda e: None, bgcolor="#7F1D1D", color="#FCA5A5")
+        ], spacing=8),
+        padding=ft.padding.symmetric(horizontal=12, vertical=8),
+        bgcolor="#1E293B"
+    )
+    
+    search_row = ft.Container(
+        content=ft.Row([ent, btn_x, btn_find], spacing=8),
+        padding=ft.padding.symmetric(horizontal=12, vertical=8),
+        bgcolor="#1E293B"
+    )
+    
+    nav_row = ft.Container(
+        content=ft.Row([btn_back, btn_fwd, btn_reload, btn_yt], spacing=8),
+        padding=ft.padding.symmetric(horizontal=12, vertical=4),
+        bgcolor="#1E293B",
+        visible=False
+    )
+    
+    out = ft.Text("Версия "+VERSION+" готова.", color="#F8FAFC", size=14, selectable=True)
+    text_view = ft.Column([out], expand=True, scroll=ft.ScrollMode.AUTO)
+    text_container = ft.Container(content=text_view, expand=True, padding=ft.padding.all(12), bgcolor="#0F172A")
+    
+    web_view = ft.WebView(expand=True, visible=False)
+    
+    chip_row = ft.Row([], wrap=True, spacing=8)
+    chip_container = ft.Container(content=chip_row, padding=ft.padding.symmetric(horizontal=12, vertical=6), bgcolor="#1E293B")
+    
+    bottom_bar = ft.Container(
+        content=ft.Row([
+            ft.ElevatedButton("КЛАВИАТУРА", on_click=lambda e: ent.focus(), bgcolor="#334155", color="#F8FAFC", expand=True),
+            ft.ElevatedButton("ВСТАВИТЬ", on_click=lambda e: paste_clip(), bgcolor="#0F766E", color="#FFF", expand=True)
+        ], spacing=8),
+        padding=ft.padding.symmetric(horizontal=12, vertical=8),
+        bgcolor="#1E293B"
+    )
+    
+    page.add(header, search_row, nav_row, text_container, web_view, chip_container, bottom_bar)
+    
+    page.current_url = ""
+    page.web_history = []
+    page.web_pos = -1
+    
+    def update_chips():
+        chip_row.controls.clear()
+        for h in HIST[:4]:
+            chip_row.controls.append(ft.ElevatedButton(
+                h[:17]+(".." if len(h)>17 else ""),
+                on_click=lambda e,v=h: (setattr(ent,"value",v), do_search()),
+                bgcolor="#334155",
+                color="#38BDF8"
+            ))
+        page.update()
+    
+    update_chips()
+    
+    def paste_clip():
+        try:
+            if hasattr(page, 'clipboard') and page.clipboard:
+                txt = page.clipboard.get_data()
+                if txt:
+                    ent.value = (ent.value or "") + txt
+                    page.update()
+        except Exception: pass
+    
+    def show_bookmarks():
+        lines = ["ИЗБРАННЫЕ ЗАКЛАДКИ",""]
+        for idx, b in enumerate(BM, 1):
+            lines.append(f"{idx}. {b['t']}")
+            lines.append(b['u'])
+            lines.append("")
+        out.value = "\n".join(lines)
+        out.color = "#F8FAFC"
+        text_container.visible = True
+        web_view.visible = False
+        nav_row.visible = False
+        page.update()
+    
+    def open_webview(url):
+        page.current_url = url
+        page.web_history.append(url)
+        page.web_pos = len(page.web_history)-1
+        text_container.visible = False
+        web_view.visible = True
+        nav_row.visible = True
+        is_yt = "youtube.com" in url or "youtu.be" in url
+        btn_yt.visible = is_yt
+        btn_back.visible = True
+        btn_fwd.visible = True
+        btn_reload.visible = True
+        web_view.url = url
+        page.update()
+    
+    def do_search():
+        q = (ent.value or "").strip()
+        if not q: return
+        if q not in HIST: HIST.insert(0,q); update_chips()
+        
+        if q.startswith("http://") or q.startswith("https://") or ("." in q and " " not in q):
+            if not q.startswith("http"): q = "https://" + q
+            open_webview(q)
+            return
+        
+        out.value = "◐ Ищем «"+q+"»..."
+        out.color = "#F8FAFC"
+        text_container.visible = True
+        web_view.visible = False
+        nav_row.visible = False
+        page.update()
+        
+        def worker():
+            r = math(q) or weather(q) or tools(q)
+            if r: txt = "══ ОТВЕТ ══\n\n "+r
+            else: txt = answer(q)
+            out.value = txt
+            out.color = "#E2E8F0"
+            page.update()
+        
+        threading.Thread(target=worker, daemon=True).start()
+
+ft.app(target=main)
