@@ -13,12 +13,22 @@ SESSION.trust_env = False
 
 def http_get(url, params=None, headers=None, timeout=7.5):
     try:
-        return SESSION.get(url, params=params, headers=headers, timeout=timeout, verify=False)
+        r = SESSION.get(url, params=params, headers=headers, timeout=timeout, verify=False)
+        if r:
+            r.encoding = 'utf-8'
+        return r
     except Exception:
         return None
 
-VERSION = "v14.7"
-H_WEB = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36", "Accept-Language": "ru-RU,ru;q=0.9"}
+VERSION = "v14.9"
+H_WEB = {
+    "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Upgrade-Insecure-Requests": "1"
+}
 AD = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","казино","ставки","войти","регистрация")
 STOP = ("когда","где","кто","что","как","почему","зачем","сколько","какой","это","ли","в","на","по","о")
 KB = ("йцукенгшщзхъ","фывапролджэ","ячсмитьбю")
@@ -139,36 +149,39 @@ def wiki(dom,src,q):
 def yandex_search(q):
     cards = []
     try:
-        r = http_get("https://yandex.ru/search",{"text":q,"lr":"213"},H_WEB)
+        r = http_get("https://m.yandex.ru/search",{"text":q,"lr":"213"},H_WEB)
         if not r or r.status_code!=200 or not BeautifulSoup: return cards
         soup = BeautifulSoup(r.text,"html.parser")
         for a in soup.find_all("a",href=True):
             href = a.get("href","")
             if not href.startswith("http"): continue
-            bad = ["yandex.ru/search","yandex.ru/turbo","yabs.yandex","an.yandex","googleadservices","doubleclick"]
+            bad = ["yandex.ru/search","yandex.ru/turbo","yabs.yandex","an.yandex","googleadservices","doubleclick","smartcaptcha"]
             if any(b in href for b in bad): continue
             t = a.get_text(" ",strip=True)
-            if len(t)<15 or len(t)>200: continue
+            if len(t)<10 or len(t)>200: continue
             if any(ad in (t+href).lower() for ad in AD): continue
             cards.append({"s":"Яндекс","t":t,"u":href,"sn":""})
             if len(cards)>=6: break
     except Exception: pass
     return cards
 
-def ramble_search(q):
+def google_search(q):
     cards = []
     try:
-        r = http_get("https://nova.rambler.ru/search",{"query":q},H_WEB)
+        r = http_get("https://www.google.com/search",{"q":q,"hl":"ru","gl":"ru"},H_WEB)
         if not r or r.status_code!=200 or not BeautifulSoup: return cards
         soup = BeautifulSoup(r.text,"html.parser")
         for a in soup.find_all("a",href=True):
             href = a.get("href","")
             if not href.startswith("http"): continue
-            if "rambler.ru" in href and "/search" in href: continue
+            bad = ["google.com/search","google.com/webhp","google.com/preferences","google.com/policies","accounts.google","support.google"]
+            if any(b in href for b in bad): continue
+            if "/url?q=" in href:
+                href = href.split("/url?q=")[1].split("&")[0]
             t = a.get_text(" ",strip=True)
-            if len(t)<15 or len(t)>200: continue
+            if len(t)<10 or len(t)>200: continue
             if any(ad in (t+href).lower() for ad in AD): continue
-            cards.append({"s":"Rambler","t":t,"u":href,"sn":""})
+            cards.append({"s":"Google","t":t,"u":href,"sn":""})
             if len(cards)>=6: break
     except Exception: pass
     return cards
@@ -232,7 +245,7 @@ def answer(q):
     def w2(): res["c2"] = wiki("ru.wiktionary.org","Словарь",q)
     def w3(): res["c3"] = wiki("ru.ruwiki.ru","Рунет",q)
     def w4(): res["c4"] = yandex_search(q)
-    def w5(): res["c5"] = ramble_search(q)
+    def w5(): res["c5"] = google_search(q)
     ts = [threading.Thread(target=f) for f in (w1,w2,w3,w4,w5)]
     for t in ts: t.start()
     for t in ts: t.join(7)
@@ -246,8 +259,6 @@ def answer(q):
         lines.append("")
     if not allc: lines.append("Ничего не найдено.")
     return "\n".join(lines)
-
-# ==================== FLET ИНТЕРФЕЙС (простой, для 0.25.2) ====================
 
 def main(page: ft.Page):
     page.title = "Браузер Тир "+VERSION
@@ -273,7 +284,6 @@ def main(page: ft.Page):
         if not q: return
         if q not in HIST: HIST.insert(0,q); update_chips()
         
-        # Если URL — открыть в системном браузере
         if q.startswith("http://") or q.startswith("https://") or ("." in q and " " not in q):
             if not q.startswith("http"): q = "https://" + q
             ft.utils.launch(q)
