@@ -38,8 +38,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.find.outputs.apk }}
-          tag_name: v14.5-flet
-          name: Tir Browser v14.5 (Flet)
+          tag_name: v14.5
+          name: Tir Browser v14.5
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
