@@ -1,16 +1,12 @@
-[tool.poetry]
+[project]
 name = "tir"
-version = "1.6.0"
-description = "Tir Browser"
-authors = ["hascer12"]
+version = "2.6.0"
+dependencies = [
+    "flet==0.27.0",
+    "requests",
+    "beautifulsoup4",
+    "lxml",
+]
 
-[tool.poetry.dependencies]
-python = "^3.11"
-flet = "*"
-requests = "*"
-beautifulsoup4 = "*"
-lxml = "*"
-
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[tool.flet]
+product = "Tir Browser"
