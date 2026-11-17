@@ -1,4 +1,4 @@
-import re, threading, urllib.parse, requests, urllib3
+import re, threading, urllib.parse, requests, urllib3, os
 import flet as ft
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -17,9 +17,9 @@ def http_get(url, params=None, headers=None, timeout=7.5):
     except Exception:
         return None
 
-VERSION = "v14.5"
-H_WEB = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/122.0.0.0 Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/14.5", "Accept": "application/json"}
+VERSION = "v14.6"
+H_WEB = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36", "Accept-Language": "ru-RU,ru;q=0.9"}
+H_API = {"User-Agent": "TirBrowser/14.6", "Accept": "application/json"}
 AD = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","казино","ставки","войти","регистрация")
 STOP = ("когда","где","кто","что","как","почему","зачем","сколько","какой","это","ли","в","на","по","о")
 KB = ("йцукенгшщзхъ","фывапролджэ","ячсмитьбю")
@@ -55,12 +55,12 @@ def weather(q):
     city = " ".join(w for w in ws if w not in st and len(w)>2).strip()
     for c in ([city,"Москва"] if city else ["Москва"]):
         try:
-            g = http_get("https://api.open-meteo.com/v1/geocoding",{"name":c,"count":1,"language":"ru"},t=4.5)
+            g = http_get("https://api.open-meteo.com/v1/geocoding",{"name":c,"count":1,"language":"ru"})
             if not g or g.status_code!=200: continue
             rs = g.json().get("results",[])
             if not rs: continue
             l = rs[0]
-            w = http_get("https://api.open-meteo.com/v1/forecast",{"latitude":l["latitude"],"longitude":l["longitude"],"current_weather":"true"},t=4.5)
+            w = http_get("https://api.open-meteo.com/v1/forecast",{"latitude":l["latitude"],"longitude":l["longitude"],"current_weather":"true"})
             if not w or w.status_code!=200: continue
             cw = w.json().get("current_weather",{})
             if "temperature" not in cw: continue
@@ -78,7 +78,7 @@ def tools(q):
         amt = float(m.group(1).replace(",",".")) if m else 1.0
         cur = "EUR" if re.search(r"(евр|eur)",ql) else ("CNY" if re.search(r"(юан|cny)",ql) else "USD")
         try:
-            r = http_get("https://open.er-api.com/v6/latest/"+cur,t=5.0)
+            r = http_get("https://open.er-api.com/v6/latest/"+cur)
             if r and r.status_code==200:
                 v = r.json().get("rates",{}).get("RUB",0)
                 if v: return f"{amt} {cur} = {round(amt*v,2)} RUB (курс {round(v,2)})"
@@ -88,12 +88,38 @@ def tools(q):
         if txt:
             ru = bool(re.search(r"[а-яА-ЯёЁ]",txt))
             try:
-                r = http_get("https://translate.googleapis.com/translate_a/single",{"client":"gtx","sl":"ru" if ru else "en","tl":"en" if ru else "ru","dt":"t","q":txt},t=3.0)
+                r = http_get("https://translate.googleapis.com/translate_a/single",{"client":"gtx","sl":"ru" if ru else "en","tl":"en" if ru else "ru","dt":"t","q":txt})
                 if r and r.status_code==200 and r.text.strip().startswith("["):
                     tr = "".join(i[0] for i in r.json()[0] if i and i[0])
                     if tr and tr.lower()!=txt.lower(): return f"Перевод: {tr}"
             except Exception: pass
     return ""
+
+def word_exists(w):
+    try:
+        p = {"action":"query","list":"search","srsearch":w,"srlimit":1,"format":"json"}
+        r = http_get("https://ru.wikipedia.org/w/api.php",p)
+        items = r.json().get("query",{}).get("search",[]) if r and r.status_code==200 else []
+        return any(w.lower() in it.get("title","").lower() for it in items)
+    except Exception: return False
+
+def check_typo(q):
+    if re.search(r"[a-zA-Z]",q): return " ".join(q.split()), False
+    qc = " ".join(q.split())
+    if len(qc.split())==1 and word_exists(qc): return qc, False
+    gq = " ".join(glove(w) for w in qc.lower().split())
+    for cand in ([qc] if gq==qc.lower() else [qc,gq]):
+        try:
+            r = http_get("https://mail.ru",{"q":cand})
+            if r and r.status_code==200 and r.text.strip().startswith("{"):
+                best = str(r.json().get("items",[{}])[0].get("text","")).strip()
+                if best and best.lower()!=qc.lower() and len(best)<=len(qc)+8 and not word_exists(qc):
+                    return best, True
+        except Exception: pass
+    if gq!=qc.lower() and not word_exists(qc) and word_exists(gq): return gq, True
+    return qc, False
+
+# ============ ПОИСКОВЫЕ ИСТОЧНИКИ ============
 
 def wiki(dom,src,q):
     cards = []
@@ -101,6 +127,10 @@ def wiki(dom,src,q):
         p = {"action":"query","list":"search","srsearch":topic(q),"srlimit":5,"format":"json","utf8":1}
         r = http_get(f"https://{dom}/w/api.php",p)
         items = r.json().get("query",{}).get("search",[]) if r and r.status_code==200 else []
+        if not items:
+            p["srsearch"] = " ".join((w+"~" if len(w)>=3 else w) for w in re.sub(r"[^\w\s-]"," ",topic(q)).split() if len(w)>1)
+            r = http_get(f"https://{dom}/w/api.php",p)
+            items = r.json().get("query",{}).get("search",[]) if r and r.status_code==200 else []
         for w in items:
             t = w.get("title","")
             sn = re.sub(r"<[^>]+>","",w.get("snippet",""))
@@ -109,99 +139,17 @@ def wiki(dom,src,q):
     except Exception: pass
     return cards
 
-def answer(q):
-    res = {"c1":[],"c2":[],"c3":[]}
-    def w1(): res["c1"] = wiki("ru.wikipedia.org","Вики",q)
-    def w2(): res["c2"] = wiki("ru.wiktionary.org","Словарь",q)
-    def w3(): res["c3"] = wiki("ru.ruwiki.ru","Рунет",q)
-    ts = [threading.Thread(target=f) for f in (w1,w2,w3)]
-    for t in ts: t.start()
-    for t in ts: t.join(6)
-    allc = res["c1"]+res["c2"]+res["c3"]
-    tws = [w[:5] for w in topic(q).split() if len(w)>2]
-    best = ""
-    for c in res["c1"][:3]:
-        try:
-            r = http_get("https://ru.wikipedia.org/w/api.php",{"action":"query","prop":"extracts","explaintext":"1","exintro":"1","titles":c["t"],"format":"json"})
-            if r and r.status_code==200:
-                pg = r.json().get("query",{}).get("pages",{})
-                for pid in pg:
-                    ext = pg[pid].get("extract","")
-                    if ext and len(ext)>80:
-                        sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+",ext) if 18<=len(s)<=280]
-                        for s in sents:
-                            if any(tw in s.lower() for tw in tws): best=s; break
-                        if not best and sents: best=sents[0]
-                        if best: break
-        except Exception: pass
-        if best: break
-    lines = ["══ БЫСТРЫЙ ОТВЕТ ══","",(" "+best) if best else "Точный ответ не найден.","","══ ИСТОЧНИКИ ══",""]
-    for c in allc[:8]:
-        lines.append(f"[{c['s']}] {c['t']}")
-        lines.append(c["u"][:52])
-        if c.get("sn"): lines.append(c["sn"][:120])
-        lines.append("")
-    if not allc: lines.append("Ничего не найдено.")
-    return "\n".join(lines)
-
-def main(page: ft.Page):
-    page.title = "Браузер Тир "+VERSION
-    page.bgcolor = "#0F172A"
-    page.padding = 10
-    
-    ent = ft.TextField(
-        label="Запрос или адрес",
-        bgcolor="#1E293B",
-        color="#F8FAFC",
-        cursor_color="#FFF",
-        border_color="#334155",
-        focused_border_color="#3B82F6",
-        expand=True,
-        on_submit=lambda e: do(None)
-    )
-    
-    out = ft.Text("Версия "+VERSION+" готова.", color="#F8FAFC", size=14, selectable=True)
-    sc = ft.Column([out], expand=True, scroll=ft.ScrollMode.AUTO)
-    
-    def do(e):
-        q = (ent.value or "").strip()
-        if not q: return
-        if q not in HIST: HIST.insert(0,q); chips()
-        out.value = "◐ Ищем «"+q+"»..."
-        out.color = "#F8FAFC"
-        page.update()
-        def w():
-            r = math(q) or weather(q) or tools(q)
-            if r: txt = "══ ОТВЕТ ══\n\n "+r
-            else: txt = answer(q)
-            out.value = txt
-            out.color = "#E2E8F0"
-            page.update()
-        threading.Thread(target=w, daemon=True).start()
-    
-    def chips():
-        chip.controls.clear()
-        for h in HIST[:4]:
-            chip.controls.append(ft.ElevatedButton(
-                h[:17]+(".." if len(h)>17 else ""),
-                on_click=lambda e,v=h: (setattr(ent,"value",v), do(None)),
-                bgcolor="#334155",
-                color="#38BDF8"
-            ))
-        page.update()
-    
-    chip = ft.Row([], wrap=True)
-    
-    page.add(
-        ft.Row([
-            ft.Text("Браузер Тир "+VERSION, color="#F8FAFC", size=14, weight=ft.FontWeight.BOLD),
-            ft.ElevatedButton("ЗАКЛАДКИ", on_click=lambda e: (setattr(out,"value","\n".join(f"{i+1}. {b['t']} — {b['u']}" for i,b in enumerate(BM)))), bgcolor="#334155", color="#FBBF24"),
-            ft.ElevatedButton("ВЫХОД", on_click=lambda e: None, bgcolor="#7F1D1D", color="#FCA5A5")
-        ]),
-        ft.Row([ent, ft.ElevatedButton("НАЙТИ", on_click=do, bgcolor="#3B82F6", color="#FFF")]),
-        chip,
-        sc
-    )
-    chips()
-
-ft.app(target=main)
+def yandex_search(q):
+    """Яндекс через HTML-парсинг (как Яндекс.Браузер)"""
+    cards = []
+    try:
+        r = http_get("https://yandex.ru/search",{"text":q,"lr":"213"},H_WEB)
+        if not r or r.status_code!=200 or not BeautifulSoup: return cards
+        soup = BeautifulSoup(r.text,"html.parser")
+        for item in soup.select(".serp-item, .OrganicTitle, .serp-item__title"):
+            a = item.find("a", href=True) if item.name!="a" else item
+            if not a: continue
+            href = a.get("href","")
+            if href.startswith("/"): href = "https://yandex.ru"+href
+            if not href.startswith("http"): continue
+            if any(b in href for b in ("yandex.ru/search","yandex.
