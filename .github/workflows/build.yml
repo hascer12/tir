@@ -24,31 +24,17 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.47.9'
+          flutter-version: '3.24.0'
           channel: 'stable'
 
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses || true
 
-      - name: Install flet
-        run: pip install flet
-
-      - name: Patch Flet CLI bug
-        run: |
-          python -c "
-          import site
-          import os
-          distros = os.path.join(site.getsitepackages()[0], 'flet_cli', 'utils', 'distros.py')
-          with open(distros, 'r') as f:
-              content = f.read()
-          content = content.replace('open(dest_path, \"wb\", encoding=\"utf-8\")', 'open(dest_path, \"wb\")')
-          with open(distros, 'w') as f:
-              f.write(content)
-          print('Patched distros.py')
-          "
+      - name: Install flet (fixed version)
+        run: pip install flet==0.25.2 requests beautifulsoup4 lxml
 
       - name: Build APK
-        run: yes | flet build apk
+        run: flet build apk
 
       - name: Find APK
         id: find
@@ -60,8 +46,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.find.outputs.apk }}
-          tag_name: v2.7
-          name: Tir Browser v2.7
+          tag_name: v3.0
+          name: Tir Browser v3.0
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
