@@ -1,8 +1,8 @@
 [project]
 name = "tir"
-version = "2.6.0"
+version = "3.1.0"
 dependencies = [
-    "flet==0.27.0",
+    "flet==0.25.2",
     "requests",
     "beautifulsoup4",
     "lxml",
@@ -10,3 +10,4 @@ dependencies = [
 
 [tool.flet]
 product = "Tir Browser"
+permissions = ["INTERNET"]
