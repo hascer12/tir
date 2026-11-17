@@ -1,4 +1,4 @@
-import re, threading, urllib.parse, requests, urllib3, os
+import re, threading, urllib.parse, requests, urllib3
 import flet as ft
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -17,9 +17,8 @@ def http_get(url, params=None, headers=None, timeout=7.5):
     except Exception:
         return None
 
-VERSION = "v14.6"
+VERSION = "v14.7"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36", "Accept-Language": "ru-RU,ru;q=0.9"}
-H_API = {"User-Agent": "TirBrowser/14.6", "Accept": "application/json"}
 AD = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","казино","ставки","войти","регистрация")
 STOP = ("когда","где","кто","что","как","почему","зачем","сколько","какой","это","ли","в","на","по","о")
 KB = ("йцукенгшщзхъ","фывапролджэ","ячсмитьбю")
@@ -138,7 +137,6 @@ def wiki(dom,src,q):
     return cards
 
 def yandex_search(q):
-    """Яндекс поиск через HTML"""
     cards = []
     try:
         r = http_get("https://yandex.ru/search",{"text":q,"lr":"213"},H_WEB)
@@ -158,7 +156,6 @@ def yandex_search(q):
     return cards
 
 def ramble_search(q):
-    """Rambler поиск"""
     cards = []
     try:
         r = http_get("https://nova.rambler.ru/search",{"query":q},H_WEB)
@@ -227,7 +224,7 @@ def build_best_answer(uq, mixed, c2, c3):
         sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", wiki_text) if len(s.strip())>25]
         return " ".join(sents[:2]) if sents else wiki_text[:350]
     if snips: return " ".join(snips[:2])
-    return "Точный ответ не найден. Откройте любую ссылку ниже."
+    return "Точный ответ не найден."
 
 def answer(q):
     res = {"c1":[],"c2":[],"c3":[],"c4":[],"c5":[]}
@@ -250,12 +247,12 @@ def answer(q):
     if not allc: lines.append("Ничего не найдено.")
     return "\n".join(lines)
 
-# ==================== FLET ИНТЕРФЕЙС ====================
+# ==================== FLET ИНТЕРФЕЙС (простой, для 0.25.2) ====================
 
 def main(page: ft.Page):
     page.title = "Браузер Тир "+VERSION
     page.bgcolor = "#0F172A"
-    page.padding = 0
+    page.padding = 10
     
     ent = ft.TextField(
         label="Запрос или адрес сайта",
@@ -268,139 +265,22 @@ def main(page: ft.Page):
         on_submit=lambda e: do_search()
     )
     
-    btn_x = ft.IconButton(
-        icon=ft.Icons.CLOSE,
-        icon_color="#F8FAFC",
-        icon_size=20,
-        bgcolor="#334155",
-        on_click=lambda e: (setattr(ent,"value",""), ent.focus())
-    )
-    
-    btn_find = ft.ElevatedButton(
-        "НАЙТИ",
-        on_click=lambda e: do_search(),
-        bgcolor="#3B82F6",
-        color="#FFF",
-        height=50
-    )
-    
-    btn_back = ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color="#F8FAFC", icon_size=24, bgcolor="#334155", visible=False)
-    btn_fwd = ft.IconButton(icon=ft.Icons.ARROW_FORWARD, icon_color="#F8FAFC", icon_size=24, bgcolor="#334155", visible=False)
-    btn_reload = ft.IconButton(icon=ft.Icons.REFRESH, icon_color="#F8FAFC", icon_size=24, bgcolor="#334155", visible=False)
-    btn_yt = ft.IconButton(icon=ft.Icons.PLAY_CIRCLE, icon_color="#FF0000", icon_size=24, bgcolor="#334155", visible=False, tooltip="Открыть в YouTube")
-    
-    header = ft.Container(
-        content=ft.Row([
-            ft.Text("Браузер Тир "+VERSION, color="#F8FAFC", size=14, weight=ft.FontWeight.BOLD),
-            ft.ElevatedButton("ЗАКЛАДКИ", on_click=lambda e: show_bookmarks(), bgcolor="#334155", color="#FBBF24"),
-            ft.ElevatedButton("ВЫХОД", on_click=lambda e: None, bgcolor="#7F1D1D", color="#FCA5A5")
-        ], spacing=8),
-        padding=ft.padding.symmetric(horizontal=12, vertical=8),
-        bgcolor="#1E293B"
-    )
-    
-    search_row = ft.Container(
-        content=ft.Row([ent, btn_x, btn_find], spacing=8),
-        padding=ft.padding.symmetric(horizontal=12, vertical=8),
-        bgcolor="#1E293B"
-    )
-    
-    nav_row = ft.Container(
-        content=ft.Row([btn_back, btn_fwd, btn_reload, btn_yt], spacing=8),
-        padding=ft.padding.symmetric(horizontal=12, vertical=4),
-        bgcolor="#1E293B",
-        visible=False
-    )
-    
     out = ft.Text("Версия "+VERSION+" готова.", color="#F8FAFC", size=14, selectable=True)
-    text_view = ft.Column([out], expand=True, scroll=ft.ScrollMode.AUTO)
-    text_container = ft.Container(content=text_view, expand=True, padding=ft.padding.all(12), bgcolor="#0F172A")
-    
-    web_view = ft.WebView(expand=True, visible=False)
-    
-    chip_row = ft.Row([], wrap=True, spacing=8)
-    chip_container = ft.Container(content=chip_row, padding=ft.padding.symmetric(horizontal=12, vertical=6), bgcolor="#1E293B")
-    
-    bottom_bar = ft.Container(
-        content=ft.Row([
-            ft.ElevatedButton("КЛАВИАТУРА", on_click=lambda e: ent.focus(), bgcolor="#334155", color="#F8FAFC", expand=True),
-            ft.ElevatedButton("ВСТАВИТЬ", on_click=lambda e: paste_clip(), bgcolor="#0F766E", color="#FFF", expand=True)
-        ], spacing=8),
-        padding=ft.padding.symmetric(horizontal=12, vertical=8),
-        bgcolor="#1E293B"
-    )
-    
-    page.add(header, search_row, nav_row, text_container, web_view, chip_container, bottom_bar)
-    
-    page.current_url = ""
-    page.web_history = []
-    page.web_pos = -1
-    
-    def update_chips():
-        chip_row.controls.clear()
-        for h in HIST[:4]:
-            chip_row.controls.append(ft.ElevatedButton(
-                h[:17]+(".." if len(h)>17 else ""),
-                on_click=lambda e,v=h: (setattr(ent,"value",v), do_search()),
-                bgcolor="#334155",
-                color="#38BDF8"
-            ))
-        page.update()
-    
-    update_chips()
-    
-    def paste_clip():
-        try:
-            if hasattr(page, 'clipboard') and page.clipboard:
-                txt = page.clipboard.get_data()
-                if txt:
-                    ent.value = (ent.value or "") + txt
-                    page.update()
-        except Exception: pass
-    
-    def show_bookmarks():
-        lines = ["ИЗБРАННЫЕ ЗАКЛАДКИ",""]
-        for idx, b in enumerate(BM, 1):
-            lines.append(f"{idx}. {b['t']}")
-            lines.append(b['u'])
-            lines.append("")
-        out.value = "\n".join(lines)
-        out.color = "#F8FAFC"
-        text_container.visible = True
-        web_view.visible = False
-        nav_row.visible = False
-        page.update()
-    
-    def open_webview(url):
-        page.current_url = url
-        page.web_history.append(url)
-        page.web_pos = len(page.web_history)-1
-        text_container.visible = False
-        web_view.visible = True
-        nav_row.visible = True
-        is_yt = "youtube.com" in url or "youtu.be" in url
-        btn_yt.visible = is_yt
-        btn_back.visible = True
-        btn_fwd.visible = True
-        btn_reload.visible = True
-        web_view.url = url
-        page.update()
+    sc = ft.Column([out], expand=True, scroll=ft.ScrollMode.AUTO)
     
     def do_search():
         q = (ent.value or "").strip()
         if not q: return
         if q not in HIST: HIST.insert(0,q); update_chips()
         
+        # Если URL — открыть в системном браузере
         if q.startswith("http://") or q.startswith("https://") or ("." in q and " " not in q):
             if not q.startswith("http"): q = "https://" + q
-            open_webview(q)
+            ft.utils.launch(q)
             return
         
-        out.value = "◐ Ищем «"+q+"»..."
+        out.value = "Ищем: "+q
         out.color = "#F8FAFC"
-        text_container.visible = True
-        web_view.visible = False
-        nav_row.visible = False
         page.update()
         
         def worker():
@@ -412,5 +292,49 @@ def main(page: ft.Page):
             page.update()
         
         threading.Thread(target=worker, daemon=True).start()
+    
+    def update_chips():
+        chip.controls.clear()
+        for h in HIST[:4]:
+            chip.controls.append(ft.ElevatedButton(
+                h[:17]+(".." if len(h)>17 else ""),
+                on_click=lambda e,v=h: (setattr(ent,"value",v), do_search()),
+                bgcolor="#334155",
+                color="#38BDF8"
+            ))
+        page.update()
+    
+    chip = ft.Row([], wrap=True)
+    
+    page.add(
+        ft.Text("Браузер Тир "+VERSION, color="#F8FAFC", size=14, weight=ft.FontWeight.BOLD),
+        ft.Row([ent, ft.ElevatedButton("НАЙТИ", on_click=lambda e: do_search(), bgcolor="#3B82F6", color="#FFF")]),
+        chip,
+        ft.Row([
+            ft.ElevatedButton("ЗАКЛАДКИ", on_click=lambda e: show_bookmarks(), bgcolor="#334155", color="#FBBF24"),
+            ft.ElevatedButton("ВСТАВИТЬ", on_click=lambda e: paste_clip(), bgcolor="#0F766E", color="#FFF")
+        ]),
+        sc
+    )
+    update_chips()
+    
+    def show_bookmarks():
+        lines = ["ИЗБРАННЫЕ ЗАКЛАДКИ",""]
+        for idx, b in enumerate(BM, 1):
+            lines.append(f"{idx}. {b['t']}")
+            lines.append(b['u'])
+            lines.append("")
+        out.value = "\n".join(lines)
+        out.color = "#F8FAFC"
+        page.update()
+    
+    def paste_clip():
+        try:
+            if hasattr(page, 'clipboard') and page.clipboard:
+                txt = page.clipboard.get_data()
+                if txt:
+                    ent.value = (ent.value or "") + txt
+                    page.update()
+        except Exception: pass
 
 ft.app(target=main)
