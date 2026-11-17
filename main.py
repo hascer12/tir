@@ -10,8 +10,10 @@ except Exception:
 
 SESSION = requests.Session()
 SESSION.trust_env = False
+ERRORS = [] # Чёрный ящик для ошибок
 
 def http_get(url, params=None, headers=None, timeout=7.5):
+    global ERRORS
     try:
         r = SESSION.get(url, params=params, headers=headers, timeout=timeout, verify=False)
         if r:
@@ -19,9 +21,12 @@ def http_get(url, params=None, headers=None, timeout=7.5):
                 r.encoding = r.apparent_encoding or 'utf-8'
         return r
     except Exception as e:
+        # Сохраняем ошибку, чтобы показать её на экране
+        domain = url.split('/')[2] if '/' in url else url
+        ERRORS.append(f"{domain}: {str(e)[:60]}")
         return None
 
-VERSION = "v15.1"
+VERSION = "v15.3"
 H_WEB = {
     "User-Agent": "Mozilla/5.0 (Linux; Android 13; SM-G991B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36",
     "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -81,22 +86,12 @@ def weather(q):
     return ""
 
 def get_currency_rate(cur):
-    """Получить курс валюты через несколько API"""
-    # API 1: open.er-api.com
     try:
         r = http_get(f"https://open.er-api.com/v6/latest/{cur}")
         if r and r.status_code==200:
             v = r.json().get("rates",{}).get("RUB",0)
             if v: return v
     except: pass
-    # API 2: exchangerate-api.com
-    try:
-        r = http_get(f"https://api.exchangerate-api.com/v4/latest/{cur}")
-        if r and r.status_code==200:
-            v = r.json().get("rates",{}).get("RUB",0)
-            if v: return v
-    except: pass
-    # API 3: frankfurter.app
     try:
         r = http_get(f"https://api.frankfurter.app/latest?from={cur}&to=RUB")
         if r and r.status_code==200:
@@ -107,7 +102,6 @@ def get_currency_rate(cur):
 
 def tools(q):
     ql = q.lower().strip()
-    # Курс валют
     if re.search(r"(дол|usd|евр|eur|юан|cny)",ql) and any(w in ql for w in ("курс","валют","рубл","скольк","стои","цен")):
         m = re.search(r"(\d+(?:[.,]\d+)?)",ql)
         amt = float(m.group(1).replace(",",".")) if m else 1.0
@@ -116,8 +110,7 @@ def tools(q):
         if val > 0:
             return f"{amt} {cur} = {round(amt*val,2)} RUB (курс {round(val,2)} руб.)"
         else:
-            return f"Курс {cur} не удалось получить (API недоступны)"
-    # Перевод
+            return f"Курс {cur} не удалось получить"
     if ql.startswith(("переведи ","как будет ","что значит ")) or re.fullmatch(r"[a-zA-Z\s'.,!?-]{2,60}",q.strip()):
         txt = re.sub(r"^(переведи|как будет|что значит)\s+","",q.strip(),flags=re.I).strip()
         if txt:
@@ -247,6 +240,8 @@ def build_best_answer(uq, mixed):
     return "Точный ответ не найден."
 
 def answer(q):
+    global ERRORS
+    ERRORS = [] # Очищаем ошибки перед новым поиском
     res = {"wiki":[],"dict":[],"runet":[],"rambler":[]}
     def w1(): res["wiki"] = wiki("ru.wikipedia.org","Вики",q)
     def w2(): res["dict"] = wiki("ru.wiktionary.org","Словарь",q)
@@ -259,23 +254,20 @@ def answer(q):
     allc = res["wiki"]+res["dict"]+res["runet"]+res["rambler"]
     ans = build_best_answer(q, allc)
     
-    # ДИАГНОСТИКА
-    diag = [
-        f"Вики: {len(res['wiki'])}",
-        f"Словарь: {len(res['dict'])}",
-        f"Рунет: {len(res['runet'])}",
-        f"Rambler: {len(res['rambler'])}"
-    ]
+    # ДИАГНОСТИКА С ОШИБКАМИ
+    diag_counts = f"Вики: {len(res['wiki'])} | Словарь: {len(res['dict'])} | Рунет: {len(res['runet'])} | Rambler: {len(res['rambler'])}"
+    diag_errors = " | ".join(ERRORS[-3:]) if ERRORS else "Ошибок нет"
     
     lines = ["══ БЫСТРЫЙ ОТВЕТ ══","",(" "+ans) if ans else "Точный ответ не найден.","",
-             "══ ДИАГНОСТИКА ══"," | ".join(diag),"",
+             "══ ДИАГНОСТИКА ══", diag_counts, "",
+             "══ ОШИБКИ (если есть) ══", diag_errors, "",
              "══ ИСТОЧНИКИ ══",""]
     for c in allc[:10]:
         lines.append(f"[{c['s']}] {c['t']}")
         lines.append(c["u"][:52])
         if c.get("sn"): lines.append(c["sn"][:120])
         lines.append("")
-    if not allc: lines.append("Ничего не найдено.")
+    if not allc and not ERRORS: lines.append("Ничего не найдено.")
     return "\n".join(lines)
 
 def main(page: ft.Page):
@@ -312,7 +304,6 @@ def main(page: ft.Page):
         page.update()
         
         def worker():
-            # Проверяем tools() первым
             t = tools(q)
             if t:
                 txt = "══ ОТВЕТ ══\n\n "+t
