@@ -1,36 +1,39 @@
 import sys
 
-# ============================================
-# ПРЕДОХРАНИТЕЛЬ (оставь как есть)
-# ============================================
-REQUIRED_PACKAGES = {
-    'flet': 'flet',
-    'requests': 'requests',
-    'bs4': 'beautifulsoup4',
-    'lxml': 'lxml',
-}
-
+# ===== ПРЕДОХРАНИТЕЛЬ =====
+REQUIRED = {'flet':'flet','requests':'requests','bs4':'beautifulsoup4','lxml':'lxml'}
+missing = [p for m,p in REQUIRED.items() if not __import__('builtins').__dict__ or True]
 missing = []
-for module_name, package_name in REQUIRED_PACKAGES.items():
-    try:
-        __import__(module_name)
-    except ImportError:
-        missing.append(package_name)
-
+for m,p in REQUIRED.items():
+    try: __import__(m)
+    except ImportError: missing.append(p)
 if missing:
-    print("ОШИБКА: Не установлены библиотеки:")
-    for pkg in missing:
-        print(f"  - {pkg}")
-    sys.exit(1)
-
-print("✅ Все библиотеки установлены. Запуск приложения...")
-
-# ============================================
-# СЮДА ВСТАВЬ СВОЙ НАСТОЯЩИЙ КОД
-# ============================================
+    print("НЕТ БИБЛИОТЕК:", missing); sys.exit(1)
 
 import flet as ft
 import requests
 from bs4 import BeautifulSoup
 
-# ... твой код браузера ...
+def fetch(page, url):
+    if not url: return
+    if not url.startswith("http"): url = "https://" + url
+    page.controls[1].value = "⏳ Загружаю..."
+    page.update()
+    try:
+        r = requests.get(url, timeout=10, headers={"User-Agent":"Mozilla/5.0"})
+        soup = BeautifulSoup(r.text, "lxml")
+        title = soup.title.text if soup.title else url
+        body = soup.get_text(" ", strip=True)[:1500]
+        page.controls[1].value = f"🌐 {title}\n\n{body}"
+    except Exception as e:
+        page.controls[1].value = f"❌ Ошибка: {e}"
+    page.update()
+
+def main(page: ft.Page):
+    page.title = "Tir Browser"
+    url = ft.TextField(label="Адрес сайта", width=300)
+    btn = ft.ElevatedButton("Вперёд", on_click=lambda e: fetch(page, url.value))
+    out = ft.Text("Введи адрес и нажми Вперёд", selectable=True)
+    page.add(url, btn, out)
+
+ft.app(target=main)
