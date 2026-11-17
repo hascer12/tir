@@ -1,4 +1,4 @@
-name: Build APK with Tkinter
+name: Build APK and Release
 
 on:
   push:
@@ -12,66 +12,34 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - name: Install system deps
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y git zip unzip openjdk-17-jdk python3-pip \
-            autoconf libtool pkg-config zlib1g-dev libncurses5-dev \
-            libncursesw5-dev cmake libffi-dev libssl-dev \
-            patchelf build-essential gettext
-
-      - name: Install buildozer
-        run: |
-          pip3 install --user --upgrade Cython==0.29.36 virtualenv
-          pip3 install --user buildozer
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-
-      - name: Create buildozer.spec
-        run: |
-          cat > buildozer.spec << 'EOF'
-          [app]
-          title = Tir Browser
-          package.name = tirbrowser
-          package.domain = org.hascer12
-          source.dir = .
-          source.include_exts = py,png,jpg,kv,atlas
-          source.exclude_dirs = .github,bin,build,.idea,__pycache__
-          version = 14.5
-          requirements = python3,sdl2,sdl2_ttf,sdl2_image,sdl2_mixer,openssl,sqlite3,requests,beautifulsoup4,lxml,urllib3,six
-          orientation = portrait
-          fullscreen = 0
-          android.permissions = INTERNET
-          android.api = 33
-          android.minapi = 21
-          android.ndk = 25b
-          android.sdk = 33
-          android.accept_sdk_license = True
-          run_name = main.py
-
-          [buildozer]
-          log_level = 2
-          warn_on_root = 0
-          EOF
-
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+      - name: Accept Android licenses
+        run: yes | flutter doctor --android-licenses || true
+      - name: Install flet
+        run: pip install flet==0.25.2 requests beautifulsoup4 lxml
       - name: Build APK
-        run: |
-          buildozer --verbose android debug
-        timeout-minutes: 60
-
+        run: flet build apk
       - name: Find APK
         id: find
         run: |
-          APK=$(find bin -name "*.apk" | head -1)
+          APK=$(find build -name "*.apk" | head -1)
           echo "apk=$APK" >> $GITHUB_OUTPUT
-          echo "Found: $APK"
-
-      - name: Upload to Release
+      - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.find.outputs.apk }}
-          tag_name: v14.5-tk
-          name: Tir Browser v14.5 (Tkinter)
+          tag_name: v14.5-flet
+          name: Tir Browser v14.5 (Flet)
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
