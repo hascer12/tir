@@ -11,16 +11,15 @@ except Exception:
 SESSION = requests.Session()
 SESSION.trust_env = False
 
-# ✅ БЕЗ рекурсии: при ошибке возвращаем None, таймаут (connect, read)
 def http_get(url, params=None, headers=None, timeout=(2.5, 4.0)):
     try:
         return SESSION.get(url, params=params, headers=headers, timeout=timeout, verify=False)
     except Exception:
         return None
 
-VERSION = "v16.8"
+VERSION = "v16.9"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/122.0.0.0 Mobile Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/16.8", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/16.9", "Accept": "application/json"}
 
 AD_WORDS = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","доставка","кредит","займ","казино","ставки","услуги","прайс","an.yandex","googleadservices","doubleclick","yabs.yandex","cookie","политика конфиденциальности","войти","регистрация")
 STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живут","умер","такое","значит","это","ли","в","на","по","о","об")
@@ -112,10 +111,7 @@ def try_math(q):
         except Exception: pass
     return ""
 
-# ==================== БЫСТРЫЕ ИСТОЧНИКИ ОТВЕТА ====================
-
 def ddg_instant(q, out, done_ev):
-    """DuckDuckGo Instant Answers — один быстрый запрос"""
     try:
         r = http_get("https://api.duckduckgo.com/", params={"q": q, "format": "json", "no_html": 1, "skip_disambig": 1, "kl": "ru-ru"})
         if r is not None and r.status_code == 200:
@@ -128,7 +124,6 @@ def ddg_instant(q, out, done_ev):
     except Exception: pass
 
 def wiki_summary(q, out, done_ev):
-    """Wikipedia REST summary — самый быстрый способ получить статью"""
     try:
         topic = extract_topic(q)
         r = http_get("https://ru.wikipedia.org/w/api.php", params={"action":"opensearch","search":topic,"limit":1,"namespace":0,"format":"json","utf8":1}, headers=H_API)
@@ -146,8 +141,6 @@ def wiki_summary(q, out, done_ev):
             out["title"] = title
             done_ev.set()
     except Exception: pass
-
-# ==================== ИСТОЧНИКИ (история поиска) ====================
 
 def wiki_search_cards(q, out_list):
     try:
@@ -200,8 +193,6 @@ def get_domain(url):
     except Exception:
         return url[:30]
 
-# ==================== UI ====================
-
 def main(page: ft.Page):
     page.title = "Браузер Тир " + VERSION
     page.bgcolor = "#0F172A"
@@ -211,37 +202,73 @@ def main(page: ft.Page):
     spinner = ft.ProgressRing(width=24, height=24, color="#38BDF8", visible=False)
     status = ft.Text("Готов", color="#94A3B8", size=13)
     results = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=8)
-
     chip = ft.Row([], wrap=True, spacing=8)
 
-    page.add(
+    # ===== ВНУТРЕННИЙ БРАУЗЕР (WebView) =====
+    web_view = ft.WebView(
+        visible=True,
+        on_page_started=lambda e: set_status("Загрузка..."),
+        on_page_finished=lambda e: set_status("Готово"),
+        on_web_resource_error=lambda e: set_status("Ошибка загрузки"),
+    )
+
+    nav_bar = ft.Row([
+        ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color="#F8FAFC", on_click=lambda e: web_view.go_back()),
+        ft.IconButton(icon=ft.Icons.ARROW_FORWARD, icon_color="#F8FAFC", on_click=lambda e: web_view.go_forward()),
+        ft.IconButton(icon=ft.Icons.REFRESH, icon_color="#F8FAFC", on_click=lambda e: web_view.reload()),
+        ft.IconButton(icon=ft.Icons.CLOSE, icon_color="#F8FAFC", on_click=lambda e: close_webview()),
+        ft.Text("Внутренний браузер", color="#94A3B8", size=12, expand=True),
+    ], spacing=4)
+
+    search_layer = ft.Column([
         ft.Text("🌐 Tir Browser " + VERSION, color="#F8FAFC", size=16, weight=ft.FontWeight.BOLD),
         ft.Row([ent, ft.ElevatedButton("НАЙТИ", on_click=lambda e: run_search(), bgcolor="#3B82F6", color="#FFF")]),
         chip,
         ft.Row([spinner, status], spacing=8),
-        results
+        results,
+    ], expand=True)
+
+    web_layer = ft.Container(
+        content=ft.Column([nav_bar, web_view], expand=True, spacing=0),
+        bgcolor="#0F172A",
+        expand=True,
+        visible=False,
     )
 
-    def open_url(url):
+    # Stack: web_layer лежит ПОВЕРХ search_layer — это чинит белый экран
+    page.add(ft.Stack([search_layer, web_layer], expand=True))
+
+    def set_status(text):
+        status.value = text
+        page.update()
+
+    def open_webview(url):
+        if not url.startswith("http"):
+            url = "https://" + url
         try:
-            page.launch_url(url)
+            web_view.load_url(url)
         except Exception:
-            pass
+            web_view.url = url
+        web_layer.visible = True
+        page.update()
+
+    def close_webview():
+        web_layer.visible = False
+        page.update()
 
     def render_card(item):
         title = item.get("title", "")[:60]
         url = item.get("url", "")
         snip = item.get("snip", "")[:120]
         src = item.get("src", "")
-        domain = get_domain(url)
         card = ft.Container(
             content=ft.Column([
                 ft.Text(f"🔗 {title}", color="#60A5FA", size=13, weight=ft.FontWeight.BOLD),
-                ft.Text(f"   {domain}  •  {src}", color="#64748B", size=10)
+                ft.Text(f"   {get_domain(url)}  •  {src}", color="#64748B", size=10)
             ], spacing=2),
             padding=ft.Padding(8, 6, 8, 6),
             ink=True,
-            on_click=lambda e, u=url: open_url(u)
+            on_click=lambda e, u=url: open_webview(u),
         )
         results.controls.append(card)
         if snip:
@@ -255,6 +282,11 @@ def main(page: ft.Page):
             HISTORY.insert(0, q)
             update_chips()
 
+        # Прямой URL — сразу во внутренний браузер
+        if q.startswith("http://") or q.startswith("https://") or ("." in q and " " not in q):
+            open_webview(q)
+            return
+
         spinner.visible = True
         status.value = "Ищем..."
         results.controls.clear()
@@ -263,7 +295,6 @@ def main(page: ft.Page):
         def worker():
             LOGS.clear()
 
-            # 1) Быстрые инструменты — мгновенно
             m_ans = try_math(q) or try_smart_tools(q) or try_weather(q)
             if m_ans:
                 results.controls.append(ft.Text("⚡ Ответ", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
@@ -273,24 +304,25 @@ def main(page: ft.Page):
                 page.update()
                 return
 
-            # 2) Быстрый ответ: DDG и Wiki summary ПАРАЛЛЕЛЬНО, кто первый — тот и дал ответ
             ans_slot = {}
             ans_ev = threading.Event()
             t_ddg = threading.Thread(target=ddg_instant, args=(q, ans_slot, ans_ev), daemon=True)
             t_wiki = threading.Thread(target=wiki_summary, args=(q, ans_slot, ans_ev), daemon=True)
             t_ddg.start(); t_wiki.start()
-
-            # ждём максимум 5 сек, но показываем сразу как пришёл
             ans_ev.wait(5.0)
+
             if ans_slot.get("answer"):
                 results.controls.append(ft.Text("⚡ Быстрый ответ", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
                 results.controls.append(ft.Text(clean_txt(ans_slot["answer"])[:400], color="#F8FAFC", size=14))
                 if ans_slot.get("src"):
-                    results.controls.append(ft.TextButton(text="📖 Читать полностью", on_click=lambda e, u=ans_slot["src"]: open_url(u), color="#60A5FA"))
+                    results.controls.append(ft.TextButton(
+                        text="📖 Читать полностью",
+                        on_click=lambda e, u=ans_slot["src"]: open_webview(u),
+                        color="#60A5FA",
+                    ))
                 results.controls.append(ft.Divider(color="#334155"))
                 page.update()
 
-            # 3) Источники — параллельно, догружаются ПОСЛЕ ответа
             results.controls.append(ft.Text("🔗 ИСТОЧНИКИ", color="#FBBF24", size=15, weight=ft.FontWeight.BOLD))
             page.update()
 
@@ -313,7 +345,7 @@ def main(page: ft.Page):
 
             for item in mixed[:8]:
                 render_card(item)
-                page.update()  # ✅ показываем карточки по мере добавления
+                page.update()
 
             spinner.visible = False
             status.value = "Готово"
