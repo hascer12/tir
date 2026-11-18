@@ -17,9 +17,9 @@ def http_get(url, params=None, headers=None, timeout=7.5, **kw):
     except Exception:
         return http_get(url, params=params, headers=headers, timeout=timeout, verify=False)
 
-VERSION = "v16.0"
+VERSION = "v16.1"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/16.0", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/16.1", "Accept": "application/json"}
 
 AD_WORDS = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","доставка","кредит","займ","казино","ставки","услуги","прайс","an.yandex","googleadservices","doubleclick","yabs.yandex","cookie","политика конфиденциальности","войти","регистрация")
 STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живут","умер","такое","значит","это","ли","в","на","по","о","об")
@@ -29,27 +29,21 @@ LOGS = []
 HISTORY = ["Европейская норка", "100 долларов", "переведи breakthrough", "250 * 48"]
 BOOKMARKS = [{"title": "Европейская норка", "url": "https://wikipedia.org"}]
 
-def short_str(txt, limit):
-    return str(txt)[:limit]
+def short_str(txt, limit): return str(txt)[:limit]
 
 def clean_txt(raw):
     if not raw: return ""
     if BeautifulSoup:
         try:
             soup = BeautifulSoup(str(raw), "html.parser")
-            for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "noscript"]):
-                tag.decompose()
+            for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "noscript"]): tag.decompose()
             blocks = [el.get_text(" ", strip=True) for el in soup.find_all(["h1", "h2", "h3", "p", "li"])]
             t = " ".join(b for b in blocks if len(b) > 25) if blocks else soup.get_text(" ", strip=True)
-            t = re.sub(r"\s+", " ", t).strip()
-            return " ".join(p for p in re.split(r"(?<=[.!?])\s+", t) if not any(w in p.lower() for w in AD_WORDS)).strip()
+            return " ".join(p for p in re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", t).strip()) if not any(w in p.lower() for w in AD_WORDS)).strip()
         except Exception: pass
-    t = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", raw)).strip()
-    return " ".join(p for p in re.split(r"(?<=[.!?])\s+", t) if not any(w in p.lower() for w in AD_WORDS)).strip()
+    return " ".join(p for p in re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", raw)).strip()) if not any(w in p.lower() for w in AD_WORDS)).strip()
 
-def is_ad(u, t):
-    return any(w in (str(u) + " " + str(t)).lower() for w in AD_WORDS)
-
+def is_ad(u, t): return any(w in (str(u) + " " + str(t)).lower() for w in AD_WORDS)
 def extract_topic(q):
     words = [w for w in re.sub(r"[^\w\s-]", " ", q.lower()).split() if w not in STOP_Q and len(w) > 1]
     return " ".join(words).strip() if words else q
@@ -59,12 +53,10 @@ def fix_glove_word(w):
     res = [w[0]]
     for ch in w[1:]:
         prev = res[-1]
-        if not any((prev in r and ch in r and abs(r.find(prev) - r.find(ch)) == 1) for r in KB_ROWS):
-            res.append(ch)
+        if not any((prev in r and ch in r and abs(r.find(prev) - r.find(ch)) == 1) for r in KB_ROWS): res.append(ch)
     return "".join(res) if len(res) >= 2 else w
 
-def make_fuzzy(text):
-    return " ".join((w + "~" if len(w) >= 3 else w) for w in re.sub(r"[^\w\s-]", " ", text).split() if len(w) > 1)
+def make_fuzzy(text): return " ".join((w + "~" if len(w) >= 3 else w) for w in re.sub(r"[^\w\s-]", " ", text).split() if len(w) > 1)
 
 def try_weather(q):
     ql = q.lower().strip()
@@ -83,9 +75,8 @@ def try_weather(q):
                 cw = w.json().get("current_weather", {}) if w.status_code == 200 else {}
                 if "temperature" in cw:
                     temp, wind, code = cw.get("temperature"), cw.get("windspeed"), cw.get("weathercode", 0)
-                    sky = "Ясно" if code == 0 else ("Переменная облачность" if code in (1, 2, 3) else ("Туман" if code in (45, 48) else ("Осадки / дождь" if code < 70 else "Снег")))
-                    sign = "+" if float(temp) > 0 else ""
-                    return f"Погода ({cname}): {sign}{temp}°C, {sky}, ветер {wind} км/ч"
+                    sky = "Ясно" if code == 0 else ("Переменная облачность" if code in (1, 2, 3) else ("Туман" if code in (45, 48) else ("Осадки" if code < 70 else "Снег")))
+                    return f"Погода ({cname}): {'+' if float(temp)>0 else ''}{temp}°C, {sky}, ветер {wind} км/ч"
         except Exception: pass
     return ""
 
@@ -99,8 +90,7 @@ def try_smart_tools(q):
         val = 0.0
         try:
             r = requests.get("https://open.er-api.com/v6/latest/" + cur, timeout=5.0, verify=False)
-            if r.status_code == 200:
-                val = float(r.json().get("rates", {}).get("RUB", 0))
+            if r.status_code == 200: val = float(r.json().get("rates", {}).get("RUB", 0))
         except Exception: pass
         if val > 0: return f"{amt} {cur} = {round(amt * val, 2)} RUB (курс: {round(val, 2)} руб.)"
     is_tr_cmd = ql.startswith(("переведи ", "перевод ", "как будет ", "что значит "))
@@ -114,8 +104,7 @@ def try_smart_tools(q):
                 p = {"client": "gtx", "sl": sl, "tl": tl, "dt": "t", "q": txt}
                 r = requests.get("https://translate.googleapis.com/translate_a/single", params=p, headers=H_WEB, timeout=3.0, verify=False)
                 if r.status_code == 200 and r.text.strip().startswith("["):
-                    parts = r.json()
-                    tr = "".join(item[0] for item in parts[0] if item and item[0])
+                    tr = "".join(item[0] for item in r.json()[0] if item and item[0])
                     if tr and tr.lower() != txt.lower(): return f"ИИ-перевод ({sl} -> {tl}): {tr}"
             except Exception: pass
     return ""
@@ -133,8 +122,7 @@ def word_exists(w):
     try:
         p = {"action": "query", "list": "search", "srsearch": w, "srlimit": 1, "format": "json"}
         r = http_get("https://ru.wikipedia.org/w/api.php", params=p, headers=H_API, timeout=7.0, verify=False)
-        items = r.json().get("query", {}).get("search", []) if r.status_code == 200 else []
-        return any(w.lower() in it.get("title", "").lower() for it in items)
+        return any(w.lower() in it.get("title", "").lower() for it in r.json().get("query", {}).get("search", [])) if r.status_code == 200 else False
     except Exception: return False
 
 def check_typo(q):
@@ -147,17 +135,15 @@ def check_typo(q):
             r = http_get("https://mail.ru", params={"q": cand}, headers=H_WEB, timeout=7.0, verify=False)
             if r.status_code == 200 and r.text.strip().startswith("{"):
                 best = str(r.json().get("items", [{}])[0].get("text", "")).strip()
-                if best and best.lower() != qc.lower() and len(best) <= len(qc) + 8 and not word_exists(qc):
-                    return best, True
+                if best and best.lower() != qc.lower() and len(best) <= len(qc) + 8 and not word_exists(qc): return best, True
         except Exception: pass
     if gq != qc.lower() and not word_exists(qc) and word_exists(gq): return gq, True
     return qc, False
 
 def stream_1_ddg(q):
     cards, seen = [], set()
-    hdrs = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36", "Accept-Language": "ru-RU,ru;q=0.9"}
     try:
-        r = http_get("https://nova.rambler.ru/search", params={"query": q}, headers=hdrs, timeout=7.0, verify=False)
+        r = http_get("https://nova.rambler.ru/search", params={"query": q}, headers=H_WEB, timeout=7.0, verify=False)
         if BeautifulSoup and r.status_code == 200:
             soup = BeautifulSoup(r.text, "html.parser")
             for a in soup.find_all("a", href=True):
@@ -177,19 +163,18 @@ def stream_1_ddg(q):
 
 def wiki_api_search(domain, src_name, q):
     cards = []
-    w_api = "https://" + domain + "/w/api.php"
     try:
         topic = extract_topic(q)
         p = {"action": "query", "list": "search", "srsearch": topic, "srlimit": 5, "format": "json", "utf8": 1}
-        r = http_get(w_api, params=p, headers=H_API, timeout=7.0, verify=False)
+        r = http_get(f"https://{domain}/w/api.php", params=p, headers=H_API, timeout=7.0, verify=False)
         items = r.json().get("query", {}).get("search", []) if (r.status_code == 200 and r.text.strip().startswith("{")) else []
         if not items:
             p["srsearch"] = make_fuzzy(topic)
-            r = http_get(w_api, params=p, headers=H_API, timeout=7.0, verify=False)
+            r = http_get(f"https://{domain}/w/api.php", params=p, headers=H_API, timeout=7.0, verify=False)
             items = r.json().get("query", {}).get("search", []) if (r.status_code == 200 and r.text.strip().startswith("{")) else []
         for w in items:
             wt, ws = w.get("title", ""), clean_txt(w.get("snippet", ""))
-            wu = "https://" + domain + "/wiki/" + urllib.parse.quote(wt)
+            wu = f"https://{domain}/wiki/" + urllib.parse.quote(wt)
             if wt and not is_ad(wu, wt): cards.append({"src": src_name, "url": wu, "title": wt, "snip": ws})
         LOGS.append(src_name + ": " + str(len(cards)))
     except Exception as e: LOGS.append(src_name + " сбой: " + str(e))
@@ -198,8 +183,7 @@ def wiki_api_search(domain, src_name, q):
 def stream_2_runet(q):
     cards = wiki_api_search("ru.wiktionary.org", "Словарь 2", q)
     tws = [short_str(w, 4) for w in extract_topic(q).split() if len(w) > 2]
-    if not tws: return cards
-    return [c for c in cards if any(tw in c.get("title", "").lower() or tw in c.get("snip", "").lower() for tw in tws)]
+    return [c for c in cards if any(tw in c.get("title", "").lower() or tw in c.get("snip", "").lower() for tw in tws)] if tws else cards
 
 def stream_3_wiki(q): return wiki_api_search("ru.wikipedia.org", "Вики 3", q)
 
@@ -208,16 +192,13 @@ def read_wiki_fast(title, limit=3500):
     try:
         p = {"action": "query", "prop": "extracts", "explaintext": "1", "exintro": "1" if limit < 800 else "0", "titles": title, "format": "json"}
         r = http_get("https://ru.wikipedia.org/w/api.php", params=p, headers=H_API, timeout=7.0, verify=False)
-        pages = r.json().get("query", {}).get("pages", {})
-        for pid in pages:
-            ext = pages[pid].get("extract", "")
+        for pid in r.json().get("query", {}).get("pages", {}):
+            ext = r.json()["query"]["pages"][pid].get("extract", "")
             if ext and len(ext.strip()) > 20: return short_str(ext.strip(), limit)
     except Exception: pass
     return ""
 
-def clean_ans_text(t):
-    t = re.sub(r"\[[^\]]+\]|◆|\?\?|Корень:[^.]+\.|Существительное\.", " ", t)
-    return re.sub(r"\s+", " ", t).strip()
+def clean_ans_text(t): return re.sub(r"\s+", " ", re.sub(r"\[[^\]]+\]|◆|\?\?|Корень:[^.]+\.|Существительное\.", " ", t)).strip()
 
 def smart_fact_answer(q, text_pool):
     if not text_pool: return ""
@@ -231,8 +212,7 @@ def smart_fact_answer(q, text_pool):
     scored = []
     for sc in sents:
         score = sum(3 for tw in tws if tw in sc.lower())
-        if need_num and re.search(r"\d", sc):
-            score += 9 if re.search(r"\b(лет|год|года|году|месяц|дней|дня|час|мин|сек|кг|г|тонн|км|м|см|мм|%|тыс|млн|млрд)\b", sc.lower()) else 5
+        if need_num and re.search(r"\d", sc): score += 9 if re.search(r"\b(лет|год|года|году|месяц|дней|дня|час|мин|сек|кг|г|тонн|км|м|см|мм|%|тыс|млн|млрд)\b", sc.lower()) else 5
         if score >= 5: scored.append((score, sc))
     if scored:
         scored.sort(key=lambda x: x[0], reverse=True)
@@ -252,32 +232,33 @@ def build_best_answer(uq, mixed, c2, c3):
     if wiki_text:
         sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", wiki_text) if len(s.strip()) > 25]
         return " ".join(sents[:2]) if sents else short_str(wiki_text, 350)
-    if snips: return " ".join(snips[:2])
-    return "Точный ответ не найден."
+    return " ".join(snips[:2]) if snips else "Точный ответ не найден."
 
-# ==================== FLET ИНТЕРФЕЙС ====================
+# ==================== ИНТЕРФЕЙС (ИСПРАВЛЕН БЕЛЫЙ ЭКРАН) ====================
 
 def main(page: ft.Page):
     page.title = "Браузер Тир " + VERSION
     page.bgcolor = "#0F172A"
     page.padding = 10
+    page.horizontal_alignment = ft.CrossAxisAlignment.STRETCH
 
     ent = ft.TextField(
         label="Запрос или адрес сайта",
         bgcolor="#1E293B", color="#F8FAFC", cursor_color="#FFF",
         border_color="#334155", focused_border_color="#3B82F6",
-        expand=True, on_submit=lambda e: run_search()
+        on_submit=lambda e: run_search()
     )
 
-    # Крутилка
     spinner = ft.Text("◐", color="#38BDF8", size=22, weight=ft.FontWeight.BOLD, visible=False)
-    status_line = ft.Text("", color="#94A3B8", size=13)
+    status_line = ft.Text("Готов к работе", color="#94A3B8", size=13)
     status_row = ft.Row([spinner, status_line], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-    # Контейнер результатов
-    results_col = ft.Column([], expand=True, scroll=ft.ScrollMode.AUTO)
+    # Колонка результатов (всегда имеет контент, чтобы не схлопываться)
+    results_col = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=8)
+    results_col.controls.append(ft.Text("🌐 Браузер Тир " + VERSION, color="#F8FAFC", size=18, weight=ft.FontWeight.BOLD))
+    results_col.controls.append(ft.Text("Введите запрос или ссылку выше.", color="#94A3B8", size=14))
 
-    # WebView
+    # WebView (безопасная инициализация)
     web_view = ft.WebView(
         expand=True,
         visible=False,
@@ -286,18 +267,20 @@ def main(page: ft.Page):
         on_web_resource_error=lambda e: update_web_status("Ошибка загрузки")
     )
 
-    # Панель навигации WebView
     nav_bar = ft.Row([
         ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color="#F8FAFC", on_click=lambda e: web_view.back()),
         ft.IconButton(icon=ft.Icons.ARROW_FORWARD, icon_color="#F8FAFC", on_click=lambda e: web_view.forward()),
         ft.IconButton(icon=ft.Icons.REFRESH, icon_color="#F8FAFC", on_click=lambda e: web_view.reload()),
         ft.IconButton(icon=ft.Icons.CLOSE, icon_color="#F8FAFC", on_click=lambda e: close_webview()),
-        ft.Text("WebView", color="#94A3B8", size=12, expand=True)
+        ft.Text("Просмотр", color="#94A3B8", size=12, expand=True)
     ], spacing=8, visible=False)
 
-    # Контейнеры
-    search_container = ft.Column([status_row, results_col], expand=True, scroll=ft.ScrollMode.AUTO, visible=True)
-    web_container = ft.Column([nav_bar, web_view], expand=True, visible=False)
+    # ЕДИНЫЙ контейнер для переключения (решает проблему белого экрана)
+    content_area = ft.Column(expand=True, spacing=0)
+    content_area.controls.append(status_row)
+    content_area.controls.append(results_col)
+    content_area.controls.append(nav_bar)
+    content_area.controls.append(web_view)
 
     state = {"searching": False}
 
@@ -313,20 +296,19 @@ def main(page: ft.Page):
         page.update()
 
     def open_webview(url):
-        if not url.startswith("http"):
-            url = "https://" + url
-        search_container.visible = False
-        web_container.visible = True
+        if not url.startswith("http"): url = "https://" + url
+        results_col.visible = False
+        status_row.visible = False
         nav_bar.visible = True
-        web_view.url = url
         web_view.visible = True
+        web_view.url = url
         page.update()
 
     def close_webview():
         web_view.visible = False
         nav_bar.visible = False
-        web_container.visible = False
-        search_container.visible = True
+        results_col.visible = True
+        status_row.visible = True
         page.update()
 
     def update_web_status(text):
@@ -338,13 +320,11 @@ def main(page: ft.Page):
         if not q: return
         if q not in HISTORY: HISTORY.insert(0, q); update_chips()
 
-        # Если URL — открыть в WebView
         if q.startswith("http://") or q.startswith("https://") or ("." in q and " " not in q):
             if not q.startswith("http"): q = "https://" + q
             open_webview(q)
             return
 
-        # Запускаем крутилку
         state["searching"] = True
         spinner.visible = True
         status_line.value = "Ищем: " + q + " ..."
@@ -356,7 +336,6 @@ def main(page: ft.Page):
             LOGS.clear()
             m_ans = try_math(q) or try_weather(q) or try_smart_tools(q)
             
-            # Быстрый ответ
             if m_ans:
                 results_col.controls.append(ft.Text("⚡ Ответ", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
                 results_col.controls.append(ft.Text(m_ans, color="#F8FAFC", size=14))
@@ -387,31 +366,22 @@ def main(page: ft.Page):
                     snip = item["snip"][:160] if item.get("snip") else ""
                     src = item.get("src", "")
                     
-                    # Кликабельная ссылка-кнопка
                     link_btn = ft.TextButton(
                         text=title,
-                        url=url,
                         on_click=lambda e, u=url: open_webview(u),
                         color="#60A5FA",
-                        style=ft.ButtonStyle(
-                            overlay_color=ft.Colors.TRANSPARENT,
-                            padding=ft.Padding(0, 0, 0, 0)
-                        )
+                        style=ft.ButtonStyle(overlay_color=ft.Colors.TRANSPARENT, padding=ft.Padding(0, 0, 0, 0))
                     )
                     
                     results_col.controls.append(link_btn)
                     results_col.controls.append(ft.Text(f"`{src}`", color="#94A3B8", size=11))
-                    if snip:
-                        results_col.controls.append(ft.Text(snip, color="#CBD5E1", size=12))
+                    if snip: results_col.controls.append(ft.Text(snip, color="#CBD5E1", size=12))
                     results_col.controls.append(ft.Divider(color="#1E293B", height=8))
                 
-                # Статус потоков
                 results_col.controls.append(ft.Divider(color="#334155"))
                 results_col.controls.append(ft.Text("📊 Статус потоков", color="#38BDF8", size=14, weight=ft.FontWeight.BOLD))
-                for log in LOGS:
-                    results_col.controls.append(ft.Text(log, color="#94A3B8", size=11))
+                for log in LOGS: results_col.controls.append(ft.Text(log, color="#94A3B8", size=11))
 
-            # Останавливаем крутилку
             state["searching"] = False
             spinner.visible = False
             status_line.value = "Готово (" + str(len(LOGS)) + " источников)"
@@ -439,8 +409,7 @@ def main(page: ft.Page):
             ft.ElevatedButton("🔖 ЗАКЛАДКИ", on_click=lambda e: show_bookmarks(), bgcolor="#334155", color="#FBBF24"),
             ft.ElevatedButton("📋 ВСТАВИТЬ", on_click=lambda e: paste_clip(), bgcolor="#0F766E", color="#FFF")
         ]),
-        search_container,
-        web_container
+        content_area
     )
     update_chips()
 
@@ -448,12 +417,7 @@ def main(page: ft.Page):
         results_col.controls.clear()
         results_col.controls.append(ft.Text("🔖 Закладки", color="#FBBF24", size=16, weight=ft.FontWeight.BOLD))
         for idx, b in enumerate(BOOKMARKS, 1):
-            link_btn = ft.TextButton(
-                text=b['title'],
-                url=b['url'],
-                on_click=lambda e, u=b['url']: open_webview(u),
-                color="#60A5FA"
-            )
+            link_btn = ft.TextButton(text=b['title'], on_click=lambda e, u=b['url']: open_webview(u), color="#60A5FA")
             results_col.controls.append(link_btn)
         status_line.value = "Закладки"
         spinner.visible = False
