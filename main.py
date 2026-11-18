@@ -1,4 +1,4 @@
-import os, re, threading, urllib.parse, requests, urllib3
+import os, re, time, threading, urllib.parse, requests, urllib3
 import flet as ft
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -17,9 +17,9 @@ def http_get(url, params=None, headers=None, timeout=7.5, **kw):
     except Exception:
         return http_get(url, params=params, headers=headers, timeout=timeout, verify=False)
 
-VERSION = "v15.7"
+VERSION = "v15.9"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/15.7", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/15.9", "Accept": "application/json"}
 
 AD_WORDS = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","доставка","кредит","займ","казино","ставки","услуги","прайс","an.yandex","googleadservices","doubleclick","yabs.yandex","cookie","политика конфиденциальности","войти","регистрация")
 STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живут","умер","такое","значит","это","ли","в","на","по","о","об")
@@ -74,12 +74,12 @@ def try_weather(q):
     city = " ".join(w for w in words if w not in stop_w and len(w) > 2).strip()
     for cand in ([city, "Москва"] if city else ["Москва"]):
         try:
-            g = http_get("https://open-meteo.com", params={"name": cand, "count": 1, "language": "ru"}, timeout=4.5)
+            g = http_get("https://api.open-meteo.com/v1/geocoding", params={"name": cand, "count": 1, "language": "ru"}, timeout=4.5)
             res_g = g.json().get("results", []) if g.status_code == 200 else []
             if res_g:
                 loc = res_g[0]
                 lat, lon, cname = loc.get("latitude"), loc.get("longitude"), loc.get("name", cand)
-                w = http_get("https://open-meteo.com", params={"latitude": lat, "longitude": lon, "current_weather": "true"}, timeout=4.5)
+                w = http_get("https://api.open-meteo.com/v1/forecast", params={"latitude": lat, "longitude": lon, "current_weather": "true"}, timeout=4.5)
                 cw = w.json().get("current_weather", {}) if w.status_code == 200 else {}
                 if "temperature" in cw:
                     temp, wind, code = cw.get("temperature"), cw.get("windspeed"), cw.get("weathercode", 0)
@@ -98,13 +98,9 @@ def try_smart_tools(q):
         cur = "EUR" if re.search(r"(евр|eur)", ql) else ("CNY" if re.search(r"(юан|cny)", ql) else "USD")
         val = 0.0
         try:
-            r = requests.get("https://rambler.ru", params={"query": "курс " + cur + " к рублю ЦБ РФ"}, headers=H_WEB, timeout=5.0, verify=False)
+            r = requests.get("https://open.er-api.com/v6/latest/" + cur, timeout=5.0, verify=False)
             if r.status_code == 200:
-                txt = BeautifulSoup(r.text, "html.parser").get_text(" ", strip=True) if BeautifulSoup else re.sub(r"<[^>]+>", " ", r.text)
-                found = re.findall(r"(?:1\s*(?:usd|eur|cny|доллар|евро|юан)[а-я]*\s*=\s*|курс[^0-9]{0,20})(\d{2,3}[.,]\d{2,4})", txt.lower())
-                if not found: found = re.findall(r"(?<![\d.,])(\d{2,3}[.,]\d{2,4})(?![\d.,])", short_str(txt, 15000))
-                nums = [float(x.replace(",", ".")) for x in found if 45.0 <= float(x.replace(",", ".")) <= 140.0]
-                if nums: val = nums[0]
+                val = float(r.json().get("rates", {}).get("RUB", 0))
         except Exception: pass
         if val > 0: return f"{amt} {cur} = {round(amt * val, 2)} RUB (курс: {round(val, 2)} руб.)"
     is_tr_cmd = ql.startswith(("переведи ", "перевод ", "как будет ", "что значит "))
@@ -116,7 +112,7 @@ def try_smart_tools(q):
             sl, tl = ("ru", "en") if has_ru else ("en", "ru")
             try:
                 p = {"client": "gtx", "sl": sl, "tl": tl, "dt": "t", "q": txt}
-                r = requests.get("https://translate.googleapis.com", params=p, headers=H_WEB, timeout=3.0, verify=False)
+                r = requests.get("https://translate.googleapis.com/translate_a/single", params=p, headers=H_WEB, timeout=3.0, verify=False)
                 if r.status_code == 200 and r.text.strip().startswith("["):
                     parts = r.json()
                     tr = "".join(item[0] for item in parts[0] if item and item[0])
@@ -136,7 +132,7 @@ def try_math(q):
 def word_exists(w):
     try:
         p = {"action": "query", "list": "search", "srsearch": w, "srlimit": 1, "format": "json"}
-        r = http_get("https://ru.wikipedia.org", params=p, headers=H_API, timeout=7.0, verify=False)
+        r = http_get("https://ru.wikipedia.org/w/api.php", params=p, headers=H_API, timeout=7.0, verify=False)
         items = r.json().get("query", {}).get("search", []) if r.status_code == 200 else []
         return any(w.lower() in it.get("title", "").lower() for it in items)
     except Exception: return False
@@ -161,7 +157,7 @@ def stream_1_ddg(q):
     cards, seen = [], set()
     hdrs = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36", "Accept-Language": "ru-RU,ru;q=0.9"}
     try:
-        r = http_get("https://rambler.ru", params={"query": q}, headers=hdrs, timeout=7.0, verify=False)
+        r = http_get("https://nova.rambler.ru/search", params={"query": q}, headers=hdrs, timeout=7.0, verify=False)
         if BeautifulSoup and r.status_code == 200:
             soup = BeautifulSoup(r.text, "html.parser")
             for a in soup.find_all("a", href=True):
@@ -211,7 +207,7 @@ def read_wiki_fast(title, limit=3500):
     if not title: return ""
     try:
         p = {"action": "query", "prop": "extracts", "explaintext": "1", "exintro": "1" if limit < 800 else "0", "titles": title, "format": "json"}
-        r = http_get("https://ru.wikipedia.org", params=p, headers=H_API, timeout=7.0, verify=False)
+        r = http_get("https://ru.wikipedia.org/w/api.php", params=p, headers=H_API, timeout=7.0, verify=False)
         pages = r.json().get("query", {}).get("pages", {})
         for pid in pages:
             ext = pages[pid].get("extract", "")
@@ -259,52 +255,119 @@ def build_best_answer(uq, mixed, c2, c3):
     if snips: return " ".join(snips[:2])
     return "Точный ответ не найден."
 
-# ==================== ПРОСТОЙ FLET ИНТЕРФЕЙС (как в v15.5, но с кликабельными ссылками) ====================
+def md_escape(t):
+    return str(t).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+# ==================== FLET ИНТЕРФЕЙС С WEBVIEW ====================
 
 def main(page: ft.Page):
     page.title = "Браузер Тир " + VERSION
     page.bgcolor = "#0F172A"
     page.padding = 10
-    
+
     ent = ft.TextField(
         label="Запрос или адрес сайта",
-        bgcolor="#1E293B",
-        color="#F8FAFC",
-        cursor_color="#FFF",
-        border_color="#334155",
-        focused_border_color="#3B82F6",
-        expand=True,
-        on_submit=lambda e: run_search()
+        bgcolor="#1E293B", color="#F8FAFC", cursor_color="#FFF",
+        border_color="#334155", focused_border_color="#3B82F6",
+        expand=True, on_submit=lambda e: run_search()
     )
-    
-    out = ft.Text("Версия " + VERSION + " готова.", color="#F8FAFC", size=14, selectable=True)
-    sc = ft.Column([out], expand=True, scroll=ft.ScrollMode.AUTO)
-    
-    def open_url(url):
-        try:
-            ft.utils.launch(url)
-        except Exception:
-            pass
-    
+
+    # Крутилка
+    spinner = ft.Text("◐", color="#38BDF8", size=22, weight=ft.FontWeight.BOLD, visible=False)
+    status_line = ft.Text("", color="#94A3B8", size=13)
+    status_row = ft.Row([spinner, status_line], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
+
+    # Результат поиска
+    results = ft.Markdown(
+        "Версия " + VERSION + " готова. Введи запрос и нажми НАЙТИ.",
+        selectable=True,
+        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
+        on_link_click=lambda e: open_webview(e.data),
+        bullet_marker="•",
+        font_size=13,
+    )
+
+    # WebView для открытия сайтов
+    web_view = ft.WebView(
+        expand=True,
+        visible=False,
+        on_page_started=lambda e: update_web_status("Загрузка..."),
+        on_page_finished=lambda e: update_web_status("Готово"),
+        on_web_resource_error=lambda e: update_web_status("Ошибка загрузки")
+    )
+
+    # Панель навигации WebView
+    nav_bar = ft.Row([
+        ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color="#F8FAFC", on_click=lambda e: web_view.back()),
+        ft.IconButton(icon=ft.Icons.ARROW_FORWARD, icon_color="#F8FAFC", on_click=lambda e: web_view.forward()),
+        ft.IconButton(icon=ft.Icons.REFRESH, icon_color="#F8FAFC", on_click=lambda e: web_view.reload()),
+        ft.IconButton(icon=ft.Icons.CLOSE, icon_color="#F8FAFC", on_click=lambda e: close_webview()),
+        ft.Text("WebView", color="#94A3B8", size=12, expand=True)
+    ], spacing=8, visible=False)
+
+    # Контейнеры для переключения
+    search_container = ft.Column([status_row, results], expand=True, scroll=ft.ScrollMode.AUTO, visible=True)
+    web_container = ft.Column([nav_bar, web_view], expand=True, visible=False)
+
+    state = {"searching": False}
+
+    def animator():
+        frames = ["◐", "◓", "◑", "◒"]
+        i = 0
+        while state["searching"]:
+            spinner.value = frames[i % 4]
+            i += 1
+            page.update()
+            time.sleep(0.18)
+        spinner.value = "✓"
+        page.update()
+
+    def open_webview(url):
+        """Открыть ссылку внутри приложения"""
+        if not url.startswith("http"):
+            url = "https://" + url
+        search_container.visible = False
+        web_container.visible = True
+        nav_bar.visible = True
+        web_view.url = url
+        web_view.visible = True
+        page.update()
+
+    def close_webview():
+        """Вернуться к поиску"""
+        web_view.visible = False
+        nav_bar.visible = False
+        web_container.visible = False
+        search_container.visible = True
+        page.update()
+
+    def update_web_status(text):
+        status_line.value = text
+        page.update()
+
     def run_search():
         q = (ent.value or "").strip()
         if not q: return
         if q not in HISTORY: HISTORY.insert(0, q); update_chips()
-        
+
+        # Если URL — открыть в WebView
         if q.startswith("http://") or q.startswith("https://") or ("." in q and " " not in q):
             if not q.startswith("http"): q = "https://" + q
-            open_url(q)
+            open_webview(q)
             return
-        
-        out.value = "◐ Ищем «" + q + "»..."
-        out.color = "#F8FAFC"
+
+        # Запускаем крутилку
+        state["searching"] = True
+        spinner.visible = True
+        status_line.value = "Ищем: " + q + " ..."
         page.update()
-        
+        threading.Thread(target=animator, daemon=True).start()
+
         def worker():
             LOGS.clear()
             m_ans = try_math(q) or try_weather(q) or try_smart_tools(q)
             if m_ans:
-                txt = "══ ОТВЕТ ══\n\n " + m_ans
+                md = "## ⚡ Ответ\n\n" + md_escape(m_ans)
             else:
                 uq, has_typo = check_typo(q)
                 res = {"c1": [], "c2": [], "c3": []}
@@ -316,33 +379,39 @@ def main(page: ft.Page):
                 c1, c2, c3 = res["c1"], res["c2"], res["c3"]
                 mixed = [v for grp in zip(c1 + [None]*6, c2 + [None]*6, c3 + [None]*6) for v in grp if v]
                 ans = build_best_answer(uq, mixed, c2, c3)
-                txt = "══ БЫСТРЫЙ ОТВЕТ ══\n\n " + ans + "\n\n══ ИСТОЧНИКИ ══\n\n"
+
+                md = "## ⚡ Быстрый ответ\n\n" + md_escape(ans) + "\n\n## 🔗 Источники (нажми чтобы открыть)\n\n"
+                if not mixed:
+                    md += "_Ничего не найдено._\n\n"
                 for item in mixed[:10]:
-                    # ДЕКОДИРУЕМ URL для красоты
-                    nice_url = urllib.parse.unquote(item.get("url", ""))
-                    txt += f"[{item.get('src', '')}] {item.get('title', '')}\n{nice_url}\n"
-                    if item.get("snip"): txt += item["snip"][:120] + "\n"
-                    txt += "\n"
-                txt += "══ СТАТУС ПОТОКОВ ══\n" + "\n".join(LOGS)
-            out.value = txt
-            out.color = "#E2E8F0"
+                    title = md_escape(item.get("title", ""))
+                    url = item.get("url", "")
+                    snip = md_escape(item["snip"][:160]) if item.get("snip") else ""
+                    src = md_escape(item.get("src", ""))
+                    md += f"**[{title}]({url})** — `{src}`\n\n{snip}\n\n---\n\n"
+                md += "## 📊 Статус потоков\n\n" + "\n".join(md_escape(l) for l in LOGS)
+
+            # Останавливаем крутилку, показываем результат
+            state["searching"] = False
+            spinner.visible = False
+            status_line.value = "Готово (" + str(len(LOGS)) + " источников)"
+            results.value = md
             page.update()
-        
+
         threading.Thread(target=worker, daemon=True).start()
-    
+
     def update_chips():
         chip.controls.clear()
         for h in HISTORY[:4]:
             chip.controls.append(ft.ElevatedButton(
                 h[:17]+(".." if len(h)>17 else ""),
                 on_click=lambda e,v=h: (setattr(ent,"value",v), run_search()),
-                bgcolor="#334155",
-                color="#38BDF8"
+                bgcolor="#334155", color="#38BDF8"
             ))
         page.update()
-    
+
     chip = ft.Row([], wrap=True, spacing=8)
-    
+
     page.add(
         ft.Text("🌐 Браузер Тир " + VERSION, color="#F8FAFC", size=16, weight=ft.FontWeight.BOLD),
         ft.Row([ent, ft.ElevatedButton("НАЙТИ", on_click=lambda e: run_search(), bgcolor="#3B82F6", color="#FFF")]),
@@ -351,19 +420,20 @@ def main(page: ft.Page):
             ft.ElevatedButton("🔖 ЗАКЛАДКИ", on_click=lambda e: show_bookmarks(), bgcolor="#334155", color="#FBBF24"),
             ft.ElevatedButton("📋 ВСТАВИТЬ", on_click=lambda e: paste_clip(), bgcolor="#0F766E", color="#FFF")
         ]),
-        sc
+        search_container,
+        web_container
     )
     update_chips()
-    
+
     def show_bookmarks():
-        lines = ["🔖 ИЗБРАННЫЕ ЗАКЛАДКИ\n"]
+        md = "## 🔖 Закладки\n\n"
         for idx, b in enumerate(BOOKMARKS, 1):
-            nice_url = urllib.parse.unquote(b.get("url", ""))
-            lines.append(f"{idx}. {b.get('title', '')}\n{nice_url}\n")
-        out.value = "\n".join(lines)
-        out.color = "#F8FAFC"
+            md += f"**[{md_escape(b['title'])}]({b['url']})**\n\n"
+        status_line.value = "Закладки"
+        spinner.visible = False
+        results.value = md
         page.update()
-    
+
     def paste_clip():
         try:
             if hasattr(page, 'clipboard') and page.clipboard:
