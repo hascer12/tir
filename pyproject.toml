@@ -1,13 +1,12 @@
 [project]
 name = "tir"
-version = "3.1.0"
+version = "16.3"
+description = "Tir Browser"
+authors = ["hascer12"]
+requires-python = ">=3.11"
 dependencies = [
     "flet==0.25.2",
-    "requests",
-    "beautifulsoup4",
-    "lxml",
+    "requests==2.31.0",
+    "beautifulsoup4==4.12.3",
+    "lxml==5.1.0"
 ]
-
-[tool.flet]
-product = "Tir Browser"
-permissions = ["INTERNET"]
