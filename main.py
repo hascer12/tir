@@ -2,7 +2,6 @@ import os, re, time, threading, urllib.parse, requests, urllib3
 import flet as ft
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
-
 try:
     from bs4 import BeautifulSoup
 except Exception:
@@ -17,9 +16,9 @@ def http_get(url, params=None, headers=None, timeout=(2.5, 4.0)):
     except Exception:
         return None
 
-VERSION = "v16.9"
+VERSION = "v17.0"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/122.0.0.0 Mobile Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/16.9", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/17.0", "Accept": "application/json"}
 
 AD_WORDS = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","доставка","кредит","займ","казино","ставки","услуги","прайс","an.yandex","googleadservices","doubleclick","yabs.yandex","cookie","политика конфиденциальности","войти","регистрация")
 STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живут","умер","такое","значит","это","ли","в","на","по","о","об")
@@ -204,18 +203,18 @@ def main(page: ft.Page):
     results = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=8)
     chip = ft.Row([], wrap=True, spacing=8)
 
-    # ===== ВНУТРЕННИЙ БРАУЗЕР (WebView) =====
+    # ✅ БЕЗОПАСНЫЙ WEBVIEW (без несуществующих методов)
     web_view = ft.WebView(
         visible=True,
+        expand=True,
         on_page_started=lambda e: set_status("Загрузка..."),
         on_page_finished=lambda e: set_status("Готово"),
-        on_web_resource_error=lambda e: set_status("Ошибка загрузки"),
     )
 
+    # ✅ НАВИГАЦИЯ ЧЕРЕЗ JAVASCRIPT (не крашит приложение)
     nav_bar = ft.Row([
-        ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color="#F8FAFC", on_click=lambda e: web_view.go_back()),
-        ft.IconButton(icon=ft.Icons.ARROW_FORWARD, icon_color="#F8FAFC", on_click=lambda e: web_view.go_forward()),
-        ft.IconButton(icon=ft.Icons.REFRESH, icon_color="#F8FAFC", on_click=lambda e: web_view.reload()),
+        ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color="#F8FAFC", on_click=lambda e: web_view.evaluate_javascript("history.back()")),
+        ft.IconButton(icon=ft.Icons.REFRESH, icon_color="#F8FAFC", on_click=lambda e: web_view.evaluate_javascript("location.reload()")),
         ft.IconButton(icon=ft.Icons.CLOSE, icon_color="#F8FAFC", on_click=lambda e: close_webview()),
         ft.Text("Внутренний браузер", color="#94A3B8", size=12, expand=True),
     ], spacing=4)
@@ -235,7 +234,6 @@ def main(page: ft.Page):
         visible=False,
     )
 
-    # Stack: web_layer лежит ПОВЕРХ search_layer — это чинит белый экран
     page.add(ft.Stack([search_layer, web_layer], expand=True))
 
     def set_status(text):
@@ -245,10 +243,7 @@ def main(page: ft.Page):
     def open_webview(url):
         if not url.startswith("http"):
             url = "https://" + url
-        try:
-            web_view.load_url(url)
-        except Exception:
-            web_view.url = url
+        web_view.url = url
         web_layer.visible = True
         page.update()
 
@@ -282,7 +277,6 @@ def main(page: ft.Page):
             HISTORY.insert(0, q)
             update_chips()
 
-        # Прямой URL — сразу во внутренний браузер
         if q.startswith("http://") or q.startswith("https://") or ("." in q and " " not in q):
             open_webview(q)
             return
@@ -294,7 +288,6 @@ def main(page: ft.Page):
 
         def worker():
             LOGS.clear()
-
             m_ans = try_math(q) or try_smart_tools(q) or try_weather(q)
             if m_ans:
                 results.controls.append(ft.Text("⚡ Ответ", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
@@ -315,11 +308,7 @@ def main(page: ft.Page):
                 results.controls.append(ft.Text("⚡ Быстрый ответ", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
                 results.controls.append(ft.Text(clean_txt(ans_slot["answer"])[:400], color="#F8FAFC", size=14))
                 if ans_slot.get("src"):
-                    results.controls.append(ft.TextButton(
-                        text="📖 Читать полностью",
-                        on_click=lambda e, u=ans_slot["src"]: open_webview(u),
-                        color="#60A5FA",
-                    ))
+                    results.controls.append(ft.TextButton(text="📖 Читать полностью", on_click=lambda e, u=ans_slot["src"]: open_webview(u), color="#60A5FA"))
                 results.controls.append(ft.Divider(color="#334155"))
                 page.update()
 
