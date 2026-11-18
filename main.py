@@ -17,9 +17,9 @@ def http_get(url, params=None, headers=None, timeout=7.5, **kw):
     except Exception:
         return http_get(url, params=params, headers=headers, timeout=timeout, verify=False)
 
-VERSION = "v15.9"
+VERSION = "v16.0"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/15.9", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/16.0", "Accept": "application/json"}
 
 AD_WORDS = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","доставка","кредит","займ","казино","ставки","услуги","прайс","an.yandex","googleadservices","doubleclick","yabs.yandex","cookie","политика конфиденциальности","войти","регистрация")
 STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живут","умер","такое","значит","это","ли","в","на","по","о","об")
@@ -255,10 +255,7 @@ def build_best_answer(uq, mixed, c2, c3):
     if snips: return " ".join(snips[:2])
     return "Точный ответ не найден."
 
-def md_escape(t):
-    return str(t).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
-
-# ==================== FLET ИНТЕРФЕЙС С WEBVIEW ====================
+# ==================== FLET ИНТЕРФЕЙС ====================
 
 def main(page: ft.Page):
     page.title = "Браузер Тир " + VERSION
@@ -277,17 +274,10 @@ def main(page: ft.Page):
     status_line = ft.Text("", color="#94A3B8", size=13)
     status_row = ft.Row([spinner, status_line], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-    # Результат поиска
-    results = ft.Markdown(
-        "Версия " + VERSION + " готова. Введи запрос и нажми НАЙТИ.",
-        selectable=True,
-        extension_set=ft.MarkdownExtensionSet.GITHUB_WEB,
-        on_link_click=lambda e: open_webview(e.data),
-        bullet_marker="•",
-        font_size=13,
-    )
+    # Контейнер результатов
+    results_col = ft.Column([], expand=True, scroll=ft.ScrollMode.AUTO)
 
-    # WebView для открытия сайтов
+    # WebView
     web_view = ft.WebView(
         expand=True,
         visible=False,
@@ -305,8 +295,8 @@ def main(page: ft.Page):
         ft.Text("WebView", color="#94A3B8", size=12, expand=True)
     ], spacing=8, visible=False)
 
-    # Контейнеры для переключения
-    search_container = ft.Column([status_row, results], expand=True, scroll=ft.ScrollMode.AUTO, visible=True)
+    # Контейнеры
+    search_container = ft.Column([status_row, results_col], expand=True, scroll=ft.ScrollMode.AUTO, visible=True)
     web_container = ft.Column([nav_bar, web_view], expand=True, visible=False)
 
     state = {"searching": False}
@@ -323,7 +313,6 @@ def main(page: ft.Page):
         page.update()
 
     def open_webview(url):
-        """Открыть ссылку внутри приложения"""
         if not url.startswith("http"):
             url = "https://" + url
         search_container.visible = False
@@ -334,7 +323,6 @@ def main(page: ft.Page):
         page.update()
 
     def close_webview():
-        """Вернуться к поиску"""
         web_view.visible = False
         nav_bar.visible = False
         web_container.visible = False
@@ -360,14 +348,18 @@ def main(page: ft.Page):
         state["searching"] = True
         spinner.visible = True
         status_line.value = "Ищем: " + q + " ..."
+        results_col.controls.clear()
         page.update()
         threading.Thread(target=animator, daemon=True).start()
 
         def worker():
             LOGS.clear()
             m_ans = try_math(q) or try_weather(q) or try_smart_tools(q)
+            
+            # Быстрый ответ
             if m_ans:
-                md = "## ⚡ Ответ\n\n" + md_escape(m_ans)
+                results_col.controls.append(ft.Text("⚡ Ответ", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
+                results_col.controls.append(ft.Text(m_ans, color="#F8FAFC", size=14))
             else:
                 uq, has_typo = check_typo(q)
                 res = {"c1": [], "c2": [], "c3": []}
@@ -380,22 +372,49 @@ def main(page: ft.Page):
                 mixed = [v for grp in zip(c1 + [None]*6, c2 + [None]*6, c3 + [None]*6) for v in grp if v]
                 ans = build_best_answer(uq, mixed, c2, c3)
 
-                md = "## ⚡ Быстрый ответ\n\n" + md_escape(ans) + "\n\n## 🔗 Источники (нажми чтобы открыть)\n\n"
+                results_col.controls.append(ft.Text("⚡ Быстрый ответ", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
+                results_col.controls.append(ft.Text(ans, color="#F8FAFC", size=14))
+                results_col.controls.append(ft.Divider(color="#334155"))
+                
+                results_col.controls.append(ft.Text("🔗 Источники (нажми чтобы открыть)", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
+                
                 if not mixed:
-                    md += "_Ничего не найдено._\n\n"
+                    results_col.controls.append(ft.Text("Ничего не найдено.", color="#94A3B8", size=13))
+                
                 for item in mixed[:10]:
-                    title = md_escape(item.get("title", ""))
+                    title = item.get("title", "")
                     url = item.get("url", "")
-                    snip = md_escape(item["snip"][:160]) if item.get("snip") else ""
-                    src = md_escape(item.get("src", ""))
-                    md += f"**[{title}]({url})** — `{src}`\n\n{snip}\n\n---\n\n"
-                md += "## 📊 Статус потоков\n\n" + "\n".join(md_escape(l) for l in LOGS)
+                    snip = item["snip"][:160] if item.get("snip") else ""
+                    src = item.get("src", "")
+                    
+                    # Кликабельная ссылка-кнопка
+                    link_btn = ft.TextButton(
+                        text=title,
+                        url=url,
+                        on_click=lambda e, u=url: open_webview(u),
+                        color="#60A5FA",
+                        style=ft.ButtonStyle(
+                            overlay_color=ft.Colors.TRANSPARENT,
+                            padding=ft.Padding(0, 0, 0, 0)
+                        )
+                    )
+                    
+                    results_col.controls.append(link_btn)
+                    results_col.controls.append(ft.Text(f"`{src}`", color="#94A3B8", size=11))
+                    if snip:
+                        results_col.controls.append(ft.Text(snip, color="#CBD5E1", size=12))
+                    results_col.controls.append(ft.Divider(color="#1E293B", height=8))
+                
+                # Статус потоков
+                results_col.controls.append(ft.Divider(color="#334155"))
+                results_col.controls.append(ft.Text("📊 Статус потоков", color="#38BDF8", size=14, weight=ft.FontWeight.BOLD))
+                for log in LOGS:
+                    results_col.controls.append(ft.Text(log, color="#94A3B8", size=11))
 
-            # Останавливаем крутилку, показываем результат
+            # Останавливаем крутилку
             state["searching"] = False
             spinner.visible = False
             status_line.value = "Готово (" + str(len(LOGS)) + " источников)"
-            results.value = md
             page.update()
 
         threading.Thread(target=worker, daemon=True).start()
@@ -426,12 +445,18 @@ def main(page: ft.Page):
     update_chips()
 
     def show_bookmarks():
-        md = "## 🔖 Закладки\n\n"
+        results_col.controls.clear()
+        results_col.controls.append(ft.Text("🔖 Закладки", color="#FBBF24", size=16, weight=ft.FontWeight.BOLD))
         for idx, b in enumerate(BOOKMARKS, 1):
-            md += f"**[{md_escape(b['title'])}]({b['url']})**\n\n"
+            link_btn = ft.TextButton(
+                text=b['title'],
+                url=b['url'],
+                on_click=lambda e, u=b['url']: open_webview(u),
+                color="#60A5FA"
+            )
+            results_col.controls.append(link_btn)
         status_line.value = "Закладки"
         spinner.visible = False
-        results.value = md
         page.update()
 
     def paste_clip():
