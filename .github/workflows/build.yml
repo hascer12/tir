@@ -38,8 +38,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.find.outputs.apk }}
-          tag_name: v15.5
-          name: Tir Browser v15.5 (Original Logic)
+          tag_name: v15.9
+          name: Tir Browser v15.9 (Internal WebView)
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
