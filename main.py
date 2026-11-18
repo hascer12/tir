@@ -264,13 +264,51 @@ def main(page: ft.Page):
 
         def worker():
             LOGS.clear()
-            ans = try_math(q) or try_weather(q) or try_smart_tools(q)
-            if ans:
-                results.controls.append(ft.Text("⚡ " + ans, color="#F8FAFC", size=14))
+            m_ans = try_math(q) or try_weather(q) or try_smart_tools(q)
+            
+            if m_ans:
+                results.controls.append(ft.Text("⚡ Ответ", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
+                results.controls.append(ft.Text(m_ans, color="#F8FAFC", size=14))
             else:
-                results.controls.append(ft.Text("Поиск: " + q, color="#F8FAFC", size=14))
+                uq, has_typo = check_typo(q)
+                res = {"c1": [], "c2": [], "c3": []}
+                t1 = threading.Thread(target=lambda: res.update(c1=stream_1_ddg(uq)))
+                t2 = threading.Thread(target=lambda: res.update(c2=stream_2_runet(uq)))
+                t3 = threading.Thread(target=lambda: res.update(c3=stream_3_wiki(uq)))
+                t1.start(); t2.start(); t3.start()
+                t1.join(5.0); t2.join(5.0); t3.join(5.0)
+                c1, c2, c3 = res["c1"], res["c2"], res["c3"]
+                mixed = [v for grp in zip(c1 + [None]*6, c2 + [None]*6, c3 + [None]*6) for v in grp if v]
+                ans = build_best_answer(uq, mixed, c2, c3)
+
+                results.controls.append(ft.Text("⚡ Быстрый ответ", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
+                results.controls.append(ft.Text(ans, color="#F8FAFC", size=14))
+                results.controls.append(ft.Divider(color="#334155"))
+                
+                results.controls.append(ft.Text("🔗 Источники", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
+                
+                if not mixed:
+                    results.controls.append(ft.Text("Ничего не найдено.", color="#94A3B8", size=13))
+                
+                for item in mixed[:10]:
+                    title = item.get("title", "")
+                    url = item.get("url", "")
+                    snip = item["snip"][:160] if item.get("snip") else ""
+                    src = item.get("src", "")
+                    
+                    results.controls.append(ft.Text(f"🔗 {title}", color="#60A5FA", size=13, weight=ft.FontWeight.BOLD))
+                    results.controls.append(ft.Text(f"   {url}", color="#94A3B8", size=11))
+                    if snip:
+                        results.controls.append(ft.Text(f"   {snip}", color="#CBD5E1", size=12))
+                    results.controls.append(ft.Divider(color="#1E293B", height=8))
+                
+                results.controls.append(ft.Divider(color="#334155"))
+                results.controls.append(ft.Text("📊 Статус потоков", color="#38BDF8", size=14, weight=ft.FontWeight.BOLD))
+                for log in LOGS:
+                    results.controls.append(ft.Text(log, color="#94A3B8", size=11))
+
             spinner.visible = False
-            status.value = "Готово"
+            status.value = "Готово (" + str(len(LOGS)) + " источников)"
             page.update()
 
         threading.Thread(target=worker, daemon=True).start()
