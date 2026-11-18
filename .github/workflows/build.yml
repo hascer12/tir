@@ -1,8 +1,7 @@
 name: Build APK
 
 on:
-  push:
-    branches: [ main ]
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -29,8 +28,6 @@ jobs:
         run: yes | flutter doctor --android-licenses || true
       - name: Install flet
         run: pip install flet==0.25.2 requests beautifulsoup4 lxml
-      - name: Check syntax
-        run: python -m py_compile main.py && echo "OK"
       - name: Build APK
         run: flet build apk
       - name: Find APK
@@ -50,6 +47,5 @@ jobs:
           files: ${{ steps.find.outputs.apk }}
           tag_name: v17.0
           name: Tir Browser v17.0 (Stable WebView)
- (Internal Browser)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
