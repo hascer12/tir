@@ -1,12 +1,9 @@
 name: Build APK and Release
-
 on:
   push:
     branches: [ main ]
-
 permissions:
   contents: write
-
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -38,8 +35,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.find.outputs.apk }}
-          tag_name: v16.0
-          name: Tir Browser v16.0 (WebView + Spinner)
+          tag_name: v16.1
+          name: Tir Browser v16.1 (White Screen Fix)
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
