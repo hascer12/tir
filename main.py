@@ -17,12 +17,12 @@ def http_get(url, params=None, headers=None, timeout=7.5, **kw):
     except Exception:
         return http_get(url, params=params, headers=headers, timeout=timeout, verify=False)
 
-VERSION = "v16.4"
+VERSION = "v16.5"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/16.4", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/16.5", "Accept": "application/json"}
 
 AD_WORDS = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","доставка","кредит","займ","казино","ставки","услуги","прайс","an.yandex","googleadservices","doubleclick","yabs.yandex","cookie","политика конфиденциальности","войти","регистрация")
-STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живут","умер","такое","значит","это","ли","в","на","по","о","об")
+STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живют","умер","такое","значит","это","ли","в","на","по","о","об")
 KB_ROWS = ("йцукенгшщзхъ", "фывапролджэ", "ячсмитьбю")
 
 LOGS = []
@@ -233,6 +233,13 @@ def build_best_answer(uq, mixed, c2, c3):
         return " ".join(sents[:2]) if sents else short_str(wiki_text, 350)
     return " ".join(snips[:2]) if snips else "Точный ответ не найден."
 
+def decode_url(u):
+    """Декодирует URL из %D0%95... в читаемый вид"""
+    try:
+        return urllib.parse.unquote(u)
+    except Exception:
+        return u
+
 def main(page: ft.Page):
     page.title = "Браузер Тир " + VERSION
     page.bgcolor = "#0F172A"
@@ -253,6 +260,13 @@ def main(page: ft.Page):
         ft.Row([spinner, status], spacing=8),
         results
     )
+
+    def open_url(url):
+        """Открывает ссылку в системном браузере"""
+        try:
+            ft.utils.launch(url)
+        except Exception:
+            page.show_snack_bar(ft.SnackBar(content=ft.Text("Не удалось открыть ссылку")))
 
     def run_search():
         q = (ent.value or "").strip()
@@ -285,7 +299,7 @@ def main(page: ft.Page):
                 results.controls.append(ft.Text(ans, color="#F8FAFC", size=14))
                 results.controls.append(ft.Divider(color="#334155"))
                 
-                results.controls.append(ft.Text("🔗 Источники", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
+                results.controls.append(ft.Text("🔗 Источники (нажми чтобы открыть)", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
                 
                 if not mixed:
                     results.controls.append(ft.Text("Ничего не найдено.", color="#94A3B8", size=13))
@@ -296,8 +310,22 @@ def main(page: ft.Page):
                     snip = item["snip"][:160] if item.get("snip") else ""
                     src = item.get("src", "")
                     
-                    results.controls.append(ft.Text(f"🔗 {title}", color="#60A5FA", size=13, weight=ft.FontWeight.BOLD))
-                    results.controls.append(ft.Text(f"   {url}", color="#94A3B8", size=11))
+                    # КЛИКАБЕЛЬНАЯ ССЫЛКА — кнопка с заголовком
+                    link_btn = ft.TextButton(
+                        text=f"🔗 {title}",
+                        on_click=lambda e, u=url: open_url(u),
+                        color="#60A5FA",
+                        style=ft.ButtonStyle(
+                            overlay_color=ft.Colors.with_opacity(0.1, "#60A5FA"),
+                            padding=ft.Padding(0, 4, 0, 4)
+                        )
+                    )
+                    results.controls.append(link_btn)
+                    
+                    # Декодированный URL (читаемый)
+                    decoded = decode_url(url)
+                    results.controls.append(ft.Text(f"   {decoded}", color="#64748B", size=10, selectable=True))
+                    
                     if snip:
                         results.controls.append(ft.Text(f"   {snip}", color="#CBD5E1", size=12))
                     results.controls.append(ft.Divider(color="#1E293B", height=8))
