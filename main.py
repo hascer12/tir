@@ -1,5 +1,4 @@
-import os
-import re, threading, urllib.parse, requests, urllib3
+import os, re, threading, urllib.parse, requests, urllib3
 import flet as ft
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -18,9 +17,9 @@ def http_get(url, params=None, headers=None, timeout=7.5, **kw):
     except Exception:
         return http_get(url, params=params, headers=headers, timeout=timeout, verify=False)
 
-VERSION = "v14.5"
+VERSION = "v15.6"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/14.5 (Android; Python-requests)", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/15.6", "Accept": "application/json"}
 
 AD_WORDS = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","доставка","кредит","займ","казино","ставки","услуги","прайс","an.yandex","googleadservices","doubleclick","yabs.yandex","cookie","политика конфиденциальности","войти","регистрация")
 STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живут","умер","такое","значит","это","ли","в","на","по","о","об")
@@ -69,8 +68,7 @@ def make_fuzzy(text):
 
 def try_weather(q):
     ql = q.lower().strip()
-    if not any(w in ql for w in ("погод", "температур", "градус", "прогноз")):
-        return ""
+    if not any(w in ql for w in ("погод", "температур", "градус", "прогноз")): return ""
     words = [fix_glove_word(w) for w in re.sub(r"[^\w\s-]", " ", ql).split()]
     stop_w = ("какая","какой","сегодня","сеодня","сигодня","севодня","завтра","сейчас","погода","погоду","в","во","на","улице","прогноз","температура","градусов")
     city = " ".join(w for w in words if w not in stop_w and len(w) > 2).strip()
@@ -84,12 +82,10 @@ def try_weather(q):
                 w = http_get("https://open-meteo.com", params={"latitude": lat, "longitude": lon, "current_weather": "true"}, timeout=4.5)
                 cw = w.json().get("current_weather", {}) if w.status_code == 200 else {}
                 if "temperature" in cw:
-                    temp = cw.get("temperature")
-                    wind = cw.get("windspeed")
-                    code = cw.get("weathercode", 0)
+                    temp, wind, code = cw.get("temperature"), cw.get("windspeed"), cw.get("weathercode", 0)
                     sky = "Ясно" if code == 0 else ("Переменная облачность" if code in (1, 2, 3) else ("Туман" if code in (45, 48) else ("Осадки / дождь" if code < 70 else "Снег")))
                     sign = "+" if float(temp) > 0 else ""
-                    return "Погода (" + cname + "): " + sign + str(temp) + "°C, " + sky + ", ветер " + str(wind) + " км/ч"
+                    return f"Погода ({cname}): {sign}{temp}°C, {sky}, ветер {wind} км/ч"
         except Exception: pass
     return ""
 
@@ -100,21 +96,17 @@ def try_smart_tools(q):
         m = re.search(r"(\d+(?:[.,]\d+)?)", ql)
         amt = float(m.group(1).replace(",", ".")) if m else 1.0
         cur = "EUR" if re.search(r"(евр|eur)", ql) else ("CNY" if re.search(r"(юан|cny)", ql) else "USD")
-        cname = "евро" if cur == "EUR" else ("юаня" if cur == "CNY" else "доллара")
         val = 0.0
         try:
             r = requests.get("https://rambler.ru", params={"query": "курс " + cur + " к рублю ЦБ РФ"}, headers=H_WEB, timeout=5.0, verify=False)
             if r.status_code == 200:
                 txt = BeautifulSoup(r.text, "html.parser").get_text(" ", strip=True) if BeautifulSoup else re.sub(r"<[^>]+>", " ", r.text)
                 found = re.findall(r"(?:1\s*(?:usd|eur|cny|доллар|евро|юан)[а-я]*\s*=\s*|курс[^0-9]{0,20})(\d{2,3}[.,]\d{2,4})", txt.lower())
-                if not found:
-                    found = re.findall(r"(?<![\d.,])(\d{2,3}[.,]\d{2,4})(?![\d.,])", short_str(txt, 15000))
+                if not found: found = re.findall(r"(?<![\d.,])(\d{2,3}[.,]\d{2,4})(?![\d.,])", short_str(txt, 15000))
                 nums = [float(x.replace(",", ".")) for x in found if 45.0 <= float(x.replace(",", ".")) <= 140.0]
-                if nums:
-                    val = nums[0]
+                if nums: val = nums[0]
         except Exception: pass
-        if val > 0:
-            return str(amt) + " " + cur + " = " + str(round(amt * val, 2)) + " RUB (курс: " + str(round(val, 2)) + " руб.)"
+        if val > 0: return f"{amt} {cur} = {round(amt * val, 2)} RUB (курс: {round(val, 2)} руб.)"
     is_tr_cmd = ql.startswith(("переведи ", "перевод ", "как будет ", "что значит "))
     is_eng = bool(re.fullmatch(r"[a-zA-Z\s'.,!?-]{2,60}", q.strip()))
     if is_tr_cmd or is_eng:
@@ -128,8 +120,7 @@ def try_smart_tools(q):
                 if r.status_code == 200 and r.text.strip().startswith("["):
                     parts = r.json()
                     tr = "".join(item[0] for item in parts[0] if item and item[0])
-                    if tr and tr.lower() != txt.lower():
-                        return "ИИ-перевод (" + sl + " -> " + tl + "): " + tr
+                    if tr and tr.lower() != txt.lower(): return f"ИИ-перевод ({sl} -> {tl}): {tr}"
             except Exception: pass
     return ""
 
@@ -184,8 +175,7 @@ def stream_1_ddg(q):
                     sn = clean_txt(par.get_text(" ", strip=True).replace(t, "", 1)) if par else ""
                     cards.append({"src": "Рунет 1", "url": u, "title": t, "snip": sn})
     except Exception: pass
-    if not cards:
-        cards = wiki_api_search("ru.ruwiki.ru", "Рунет 1", q)
+    if not cards: cards = wiki_api_search("ru.ruwiki.ru", "Рунет 1", q)
     LOGS.append("Поток 1 (Рунет): " + str(len(cards)))
     return cards
 
@@ -267,9 +257,9 @@ def build_best_answer(uq, mixed, c2, c3):
         sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", wiki_text) if len(s.strip()) > 25]
         return " ".join(sents[:2]) if sents else short_str(wiki_text, 350)
     if snips: return " ".join(snips[:2])
-    return "Точный ответ не найден. Откройте любую ссылку ниже."
+    return "Точный ответ не найден."
 
-# ==================== FLET ИНТЕРФЕЙС (твой код + Flet) ====================
+# ==================== FLET ИНТЕРФЕЙС С КРАСИВЫМИ КАРТОЧКАМИ ====================
 
 def main(page: ft.Page):
     page.title = "Браузер Тир " + VERSION
@@ -287,8 +277,66 @@ def main(page: ft.Page):
         on_submit=lambda e: run_search()
     )
     
-    out = ft.Text("Версия " + VERSION + " готова.", color="#F8FAFC", size=14, selectable=True)
-    sc = ft.Column([out], expand=True, scroll=ft.ScrollMode.AUTO)
+    # Контейнер для результатов (будем очищать и заполнять)
+    results_col = ft.Column([], expand=True, scroll=ft.ScrollMode.AUTO, spacing=8)
+    
+    def clear_results():
+        results_col.controls.clear()
+    
+    def add_text(text, color="#E2E8F0", size=14, bold=False, italic=False):
+        results_col.controls.append(ft.Text(
+            text, color=color, size=size,
+            weight=ft.FontWeight.BOLD if bold else ft.FontWeight.NORMAL,
+            font_style=ft.FontStyle.ITALIC if italic else ft.FontStyle.NORMAL
+        ))
+    
+    def add_card(src, title, url, snip, page_obj):
+        """Красивая карточка с кликабельной ссылкой"""
+        # Декодируем URL для красоты
+        nice_url = urllib.parse.unquote(url)
+        
+        # Определяем цвет бейджа по источнику
+        badge_colors = {
+            "Вики 3": "#3B82F6",
+            "Словарь 2": "#10B981",
+            "Рунет 1": "#F59E0B",
+        }
+        badge_color = badge_colors.get(src, "#6B7280")
+        
+        card = ft.Container(
+            content=ft.Column([
+                ft.Row([
+                    ft.Container(
+                        content=ft.Text(src, color="#FFF", size=10, weight=ft.FontWeight.BOLD),
+                        bgcolor=badge_color,
+                        padding=ft.padding.symmetric(horizontal=8, vertical=4),
+                        border_radius=12
+                    ),
+                ], spacing=8),
+                ft.Text(
+                    title,
+                    color="#38BDF8",
+                    size=14,
+                    weight=ft.FontWeight.BOLD,
+                    selectable=True,
+                    on_click=lambda e, u=url: ft.utils.launch(u)
+                ),
+                ft.Text(
+                    nice_url,
+                    color="#94A3B8",
+                    size=11,
+                    selectable=True,
+                    on_click=lambda e, u=url: ft.utils.launch(u)
+                ),
+                ft.Text(snip, color="#CBD5E1", size=12) if snip else ft.Container(height=0)
+            ], spacing=4),
+            bgcolor="#1E293B",
+            padding=ft.padding.all(12),
+            border_radius=8,
+            border=ft.border.all(1, "#334155"),
+            margin=ft.margin.only(bottom=8)
+        )
+        results_col.controls.append(card)
     
     def run_search():
         q = (ent.value or "").strip()
@@ -300,15 +348,30 @@ def main(page: ft.Page):
             ft.utils.launch(q)
             return
         
-        out.value = "◐ Ищем «" + q + "»..."
-        out.color = "#F8FAFC"
+        clear_results()
+        add_text("◐ Ищем «" + q + "»...", color="#F8FAFC", size=16, bold=True)
         page.update()
         
         def worker():
             LOGS.clear()
             m_ans = try_math(q) or try_weather(q) or try_smart_tools(q)
+            
+            clear_results()
+            
             if m_ans:
-                txt = "══ ОТВЕТ ══\n\n " + m_ans
+                # Красивая карточка для быстрого ответа
+                card = ft.Container(
+                    content=ft.Column([
+                        ft.Text("⚡ БЫСТРЫЙ ОТВЕТ", color="#FBBF24", size=12, weight=ft.FontWeight.BOLD),
+                        ft.Text(m_ans, color="#F8FAFC", size=16, selectable=True)
+                    ], spacing=8),
+                    bgcolor="#172554",
+                    padding=ft.padding.all(16),
+                    border_radius=12,
+                    border=ft.border.all(2, "#3B82F6"),
+                    margin=ft.margin.only(bottom=12)
+                )
+                results_col.controls.append(card)
             else:
                 uq, has_typo = check_typo(q)
                 res = {"c1": [], "c2": [], "c3": []}
@@ -320,14 +383,41 @@ def main(page: ft.Page):
                 c1, c2, c3 = res["c1"], res["c2"], res["c3"]
                 mixed = [v for grp in zip(c1 + [None]*6, c2 + [None]*6, c3 + [None]*6) for v in grp if v]
                 ans = build_best_answer(uq, mixed, c2, c3)
-                txt = "══ БЫСТРЫЙ ОТВЕТ ══\n\n " + ans + "\n\n══ ИСТОЧНИКИ ══\n\n"
+                
+                # Карточка быстрого ответа
+                if ans and ans != "Точный ответ не найден.":
+                    card = ft.Container(
+                        content=ft.Column([
+                            ft.Text("⚡ БЫСТРЫЙ ОТВЕТ", color="#FBBF24", size=12, weight=ft.FontWeight.BOLD),
+                            ft.Text(ans, color="#F8FAFC", size=14, selectable=True)
+                        ], spacing=8),
+                        bgcolor="#172554",
+                        padding=ft.padding.all(16),
+                        border_radius=12,
+                        border=ft.border.all(2, "#3B82F6"),
+                        margin=ft.margin.only(bottom=12)
+                    )
+                    results_col.controls.append(card)
+                
+                # Заголовок источников
+                add_text("══ ИСТОЧНИКИ ══", color="#94A3B8", size=12, bold=True)
+                
+                # Карточки ссылок
                 for item in mixed[:10]:
-                    txt += f"[{item['src']}] {item['title']}\n{item['url'][:52]}\n"
-                    if item.get("snip"): txt += item["snip"][:120] + "\n"
-                    txt += "\n"
-                txt += "══ СТАТУС ПОТОКОВ ══\n" + "\n".join(LOGS)
-            out.value = txt
-            out.color = "#E2E8F0"
+                    add_card(
+                        item.get("src", ""),
+                        item.get("title", ""),
+                        item.get("url", ""),
+                        item.get("snip", ""),
+                        page
+                    )
+                
+                # Статус потоков
+                add_text("", color="#94A3B8", size=10)
+                add_text("══ СТАТУС ПОТОКОВ ══", color="#64748B", size=11, bold=True)
+                for log in LOGS:
+                    add_text(log, color="#64748B", size=11, italic=True)
+            
             page.update()
         
         threading.Thread(target=worker, daemon=True).start()
@@ -343,28 +433,25 @@ def main(page: ft.Page):
             ))
         page.update()
     
-    chip = ft.Row([], wrap=True)
+    chip = ft.Row([], wrap=True, spacing=8)
     
     page.add(
-        ft.Text("Браузер Тир " + VERSION, color="#F8FAFC", size=14, weight=ft.FontWeight.BOLD),
+        ft.Text("🌐 Браузер Тир " + VERSION, color="#F8FAFC", size=16, weight=ft.FontWeight.BOLD),
         ft.Row([ent, ft.ElevatedButton("НАЙТИ", on_click=lambda e: run_search(), bgcolor="#3B82F6", color="#FFF")]),
         chip,
         ft.Row([
-            ft.ElevatedButton("ЗАКЛАДКИ", on_click=lambda e: show_bookmarks(), bgcolor="#334155", color="#FBBF24"),
-            ft.ElevatedButton("ВСТАВИТЬ", on_click=lambda e: paste_clip(), bgcolor="#0F766E", color="#FFF")
+            ft.ElevatedButton("🔖 ЗАКЛАДКИ", on_click=lambda e: show_bookmarks(), bgcolor="#334155", color="#FBBF24"),
+            ft.ElevatedButton("📋 ВСТАВИТЬ", on_click=lambda e: paste_clip(), bgcolor="#0F766E", color="#FFF")
         ]),
-        sc
+        results_col
     )
     update_chips()
     
     def show_bookmarks():
-        lines = ["ИЗБРАННЫЕ ЗАКЛАДКИ",""]
+        clear_results()
+        add_text("🔖 ИЗБРАННЫЕ ЗАКЛАДКИ", color="#FBBF24", size=16, bold=True)
         for idx, b in enumerate(BOOKMARKS, 1):
-            lines.append(f"{idx}. {b['title']}")
-            lines.append(b['url'])
-            lines.append("")
-        out.value = "\n".join(lines)
-        out.color = "#F8FAFC"
+            add_card("Закладка", b["title"], b["url"], "", page)
         page.update()
     
     def paste_clip():
