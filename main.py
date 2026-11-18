@@ -17,9 +17,9 @@ def http_get(url, params=None, headers=None, timeout=7.5, **kw):
     except Exception:
         return http_get(url, params=params, headers=headers, timeout=timeout, verify=False)
 
-VERSION = "v16.1"
+VERSION = "v16.3"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/16.1", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/16.3", "Accept": "application/json"}
 
 AD_WORDS = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","доставка","кредит","займ","казино","ставки","услуги","прайс","an.yandex","googleadservices","doubleclick","yabs.yandex","cookie","политика конфиденциальности","войти","регистрация")
 STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живут","умер","такое","значит","это","ли","в","на","по","о","об")
@@ -27,7 +27,6 @@ KB_ROWS = ("йцукенгшщзхъ", "фывапролджэ", "ячсмить
 
 LOGS = []
 HISTORY = ["Европейская норка", "100 долларов", "переведи breakthrough", "250 * 48"]
-BOOKMARKS = [{"title": "Европейская норка", "url": "https://wikipedia.org"}]
 
 def short_str(txt, limit): return str(txt)[:limit]
 
@@ -234,7 +233,7 @@ def build_best_answer(uq, mixed, c2, c3):
         return " ".join(sents[:2]) if sents else short_str(wiki_text, 350)
     return " ".join(snips[:2]) if snips else "Точный ответ не найден."
 
-# ==================== ИНТЕРФЕЙС (ИСПРАВЛЕН БЕЛЫЙ ЭКРАН) ====================
+# ==================== ИНТЕРФЕЙС (ИСПРАВЛЕНИЕ БЕЛОГО ЭКРАНА ЧЕРЕЗ STACK) ====================
 
 def main(page: ft.Page):
     page.title = "Браузер Тир " + VERSION
@@ -253,14 +252,12 @@ def main(page: ft.Page):
     status_line = ft.Text("Готов к работе", color="#94A3B8", size=13)
     status_row = ft.Row([spinner, status_line], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
-    # Колонка результатов (всегда имеет контент, чтобы не схлопываться)
     results_col = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=8)
     results_col.controls.append(ft.Text("🌐 Браузер Тир " + VERSION, color="#F8FAFC", size=18, weight=ft.FontWeight.BOLD))
     results_col.controls.append(ft.Text("Введите запрос или ссылку выше.", color="#94A3B8", size=14))
 
-    # WebView (безопасная инициализация)
+    # WebView БЕЗ expand=True, чтобы не ломать макет
     web_view = ft.WebView(
-        expand=True,
         visible=False,
         on_page_started=lambda e: update_web_status("Загрузка..."),
         on_page_finished=lambda e: update_web_status("Готово"),
@@ -275,14 +272,33 @@ def main(page: ft.Page):
         ft.Text("Просмотр", color="#94A3B8", size=12, expand=True)
     ], spacing=8, visible=False)
 
-    # ЕДИНЫЙ контейнер для переключения (решает проблему белого экрана)
-    content_area = ft.Column(expand=True, spacing=0)
-    content_area.controls.append(status_row)
-    content_area.controls.append(results_col)
-    content_area.controls.append(nav_bar)
-    content_area.controls.append(web_view)
+    # Слой поиска
+    search_layer = ft.Column([
+        ft.Text("🌐 Браузер Тир " + VERSION, color="#F8FAFC", size=16, weight=ft.FontWeight.BOLD),
+        ft.Row([ent, ft.ElevatedButton("НАЙТИ", on_click=lambda e: run_search(), bgcolor="#3B82F6", color="#FFF")]),
+        ft.Row([], wrap=True, spacing=8), # chip placeholder
+        ft.Row([
+            ft.ElevatedButton("🔖 ЗАКЛАДКИ", on_click=lambda e: show_bookmarks(), bgcolor="#334155", color="#FBBF24"),
+            ft.ElevatedButton("📋 ВСТАВИТЬ", on_click=lambda e: paste_clip(), bgcolor="#0F766E", color="#FFF")
+        ]),
+        status_row,
+        results_col
+    ], expand=True)
+
+    # Слой браузера (накладывается поверх поиска)
+    web_layer = ft.Container(
+        content=ft.Column([nav_bar, web_view], expand=True),
+        bgcolor="#0F172A",
+        expand=True,
+        visible=False
+    )
+
+    # STACK предотвращает пересчет макета и спасает WebView от белого экрана
+    main_stack = ft.Stack([search_layer, web_layer], expand=True)
+    page.add(main_stack)
 
     state = {"searching": False}
+    chip = page.controls[0].controls[2] # ссылка на Row с чипсами
 
     def animator():
         frames = ["◐", "◓", "◑", "◒"]
@@ -297,18 +313,16 @@ def main(page: ft.Page):
 
     def open_webview(url):
         if not url.startswith("http"): url = "https://" + url
-        results_col.visible = False
-        status_row.visible = False
-        nav_bar.visible = True
-        web_view.visible = True
         web_view.url = url
+        web_view.visible = True
+        nav_bar.visible = True
+        web_layer.visible = True
         page.update()
 
     def close_webview():
+        web_layer.visible = False
         web_view.visible = False
         nav_bar.visible = False
-        results_col.visible = True
-        status_row.visible = True
         page.update()
 
     def update_web_status(text):
@@ -399,26 +413,12 @@ def main(page: ft.Page):
             ))
         page.update()
 
-    chip = ft.Row([], wrap=True, spacing=8)
-
-    page.add(
-        ft.Text("🌐 Браузер Тир " + VERSION, color="#F8FAFC", size=16, weight=ft.FontWeight.BOLD),
-        ft.Row([ent, ft.ElevatedButton("НАЙТИ", on_click=lambda e: run_search(), bgcolor="#3B82F6", color="#FFF")]),
-        chip,
-        ft.Row([
-            ft.ElevatedButton("🔖 ЗАКЛАДКИ", on_click=lambda e: show_bookmarks(), bgcolor="#334155", color="#FBBF24"),
-            ft.ElevatedButton("📋 ВСТАВИТЬ", on_click=lambda e: paste_clip(), bgcolor="#0F766E", color="#FFF")
-        ]),
-        content_area
-    )
-    update_chips()
-
     def show_bookmarks():
         results_col.controls.clear()
         results_col.controls.append(ft.Text("🔖 Закладки", color="#FBBF24", size=16, weight=ft.FontWeight.BOLD))
-        for idx, b in enumerate(BOOKMARKS, 1):
-            link_btn = ft.TextButton(text=b['title'], on_click=lambda e, u=b['url']: open_webview(u), color="#60A5FA")
-            results_col.controls.append(link_btn)
+        # Пример закладки
+        link_btn = ft.TextButton(text="Wikipedia", on_click=lambda e: open_webview("https://ru.wikipedia.org"), color="#60A5FA")
+        results_col.controls.append(link_btn)
         status_line.value = "Закладки"
         spinner.visible = False
         page.update()
