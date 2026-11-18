@@ -17,9 +17,9 @@ def http_get(url, params=None, headers=None, timeout=7.5, **kw):
     except Exception:
         return http_get(url, params=params, headers=headers, timeout=timeout, verify=False)
 
-VERSION = "v16.3"
+VERSION = "v16.4"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/16.3", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/16.4", "Accept": "application/json"}
 
 AD_WORDS = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","доставка","кредит","займ","казино","ставки","услуги","прайс","an.yandex","googleadservices","doubleclick","yabs.yandex","cookie","политика конфиденциальности","войти","регистрация")
 STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живут","умер","такое","значит","это","ли","в","на","по","о","об")
@@ -233,7 +233,7 @@ def build_best_answer(uq, mixed, c2, c3):
         return " ".join(sents[:2]) if sents else short_str(wiki_text, 350)
     return " ".join(snips[:2]) if snips else "Точный ответ не найден."
 
-# ==================== ИНТЕРФЕЙС (ИСПРАВЛЕНИЕ БЕЛОГО ЭКРАНА ЧЕРЕЗ STACK) ====================
+# ==================== ИНТЕРФЕЙС ====================
 
 def main(page: ft.Page):
     page.title = "Браузер Тир " + VERSION
@@ -248,7 +248,8 @@ def main(page: ft.Page):
         on_submit=lambda e: run_search()
     )
 
-    spinner = ft.Text("◐", color="#38BDF8", size=22, weight=ft.FontWeight.BOLD, visible=False)
+    # НАТИВНАЯ КРУТИЛКА (крутится сама, без потоков)
+    spinner = ft.ProgressRing(width=22, height=22, stroke_width=3, color="#38BDF8", bgcolor="#1E293B", visible=False)
     status_line = ft.Text("Готов к работе", color="#94A3B8", size=13)
     status_row = ft.Row([spinner, status_line], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
 
@@ -256,7 +257,6 @@ def main(page: ft.Page):
     results_col.controls.append(ft.Text("🌐 Браузер Тир " + VERSION, color="#F8FAFC", size=18, weight=ft.FontWeight.BOLD))
     results_col.controls.append(ft.Text("Введите запрос или ссылку выше.", color="#94A3B8", size=14))
 
-    # WebView БЕЗ expand=True, чтобы не ломать макет
     web_view = ft.WebView(
         visible=False,
         on_page_started=lambda e: update_web_status("Загрузка..."),
@@ -272,11 +272,12 @@ def main(page: ft.Page):
         ft.Text("Просмотр", color="#94A3B8", size=12, expand=True)
     ], spacing=8, visible=False)
 
-    # Слой поиска
+    chip = ft.Row([], wrap=True, spacing=8)
+
     search_layer = ft.Column([
         ft.Text("🌐 Браузер Тир " + VERSION, color="#F8FAFC", size=16, weight=ft.FontWeight.BOLD),
         ft.Row([ent, ft.ElevatedButton("НАЙТИ", on_click=lambda e: run_search(), bgcolor="#3B82F6", color="#FFF")]),
-        ft.Row([], wrap=True, spacing=8), # chip placeholder
+        chip,
         ft.Row([
             ft.ElevatedButton("🔖 ЗАКЛАДКИ", on_click=lambda e: show_bookmarks(), bgcolor="#334155", color="#FBBF24"),
             ft.ElevatedButton("📋 ВСТАВИТЬ", on_click=lambda e: paste_clip(), bgcolor="#0F766E", color="#FFF")
@@ -285,7 +286,6 @@ def main(page: ft.Page):
         results_col
     ], expand=True)
 
-    # Слой браузера (накладывается поверх поиска)
     web_layer = ft.Container(
         content=ft.Column([nav_bar, web_view], expand=True),
         bgcolor="#0F172A",
@@ -293,23 +293,8 @@ def main(page: ft.Page):
         visible=False
     )
 
-    # STACK предотвращает пересчет макета и спасает WebView от белого экрана
     main_stack = ft.Stack([search_layer, web_layer], expand=True)
     page.add(main_stack)
-
-    state = {"searching": False}
-    chip = page.controls[0].controls[2] # ссылка на Row с чипсами
-
-    def animator():
-        frames = ["◐", "◓", "◑", "◒"]
-        i = 0
-        while state["searching"]:
-            spinner.value = frames[i % 4]
-            i += 1
-            page.update()
-            time.sleep(0.18)
-        spinner.value = "✓"
-        page.update()
 
     def open_webview(url):
         if not url.startswith("http"): url = "https://" + url
@@ -339,12 +324,11 @@ def main(page: ft.Page):
             open_webview(q)
             return
 
-        state["searching"] = True
+        # Включаем крутилку
         spinner.visible = True
         status_line.value = "Ищем: " + q + " ..."
         results_col.controls.clear()
         page.update()
-        threading.Thread(target=animator, daemon=True).start()
 
         def worker():
             LOGS.clear()
@@ -384,7 +368,7 @@ def main(page: ft.Page):
                         text=title,
                         on_click=lambda e, u=url: open_webview(u),
                         color="#60A5FA",
-                        style=ft.ButtonStyle(overlay_color=ft.Colors.TRANSPARENT, padding=ft.Padding(0, 0, 0, 0))
+                        style=ft.ButtonStyle(overlay_color="transparent", padding=ft.Padding(0, 0, 0, 0))
                     )
                     
                     results_col.controls.append(link_btn)
@@ -396,7 +380,7 @@ def main(page: ft.Page):
                 results_col.controls.append(ft.Text("📊 Статус потоков", color="#38BDF8", size=14, weight=ft.FontWeight.BOLD))
                 for log in LOGS: results_col.controls.append(ft.Text(log, color="#94A3B8", size=11))
 
-            state["searching"] = False
+            # Выключаем крутилку
             spinner.visible = False
             status_line.value = "Готово (" + str(len(LOGS)) + " источников)"
             page.update()
@@ -416,7 +400,6 @@ def main(page: ft.Page):
     def show_bookmarks():
         results_col.controls.clear()
         results_col.controls.append(ft.Text("🔖 Закладки", color="#FBBF24", size=16, weight=ft.FontWeight.BOLD))
-        # Пример закладки
         link_btn = ft.TextButton(text="Wikipedia", on_click=lambda e: open_webview("https://ru.wikipedia.org"), color="#60A5FA")
         results_col.controls.append(link_btn)
         status_line.value = "Закладки"
@@ -431,5 +414,7 @@ def main(page: ft.Page):
                     ent.value = (ent.value or "") + txt
                     page.update()
         except Exception: pass
+
+    update_chips()
 
 ft.app(target=main)
