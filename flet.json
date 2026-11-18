@@ -1,0 +1,15 @@
+{
+  "app": {
+    "title": "Tir Browser",
+    "version": "16.3",
+    "description": "Браузер Тир"
+  },
+  "android": {
+    "min_sdk_version": 21,
+    "target_sdk_version": 34,
+    "permissions": [
+      "INTERNET",
+      "ACCESS_NETWORK_STATE"
+    ]
+  }
+}
