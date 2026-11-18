@@ -11,18 +11,19 @@ except Exception:
 SESSION = requests.Session()
 SESSION.trust_env = False
 
-def http_get(url, params=None, headers=None, timeout=7.5, **kw):
+# ✅ БЕЗ рекурсии: при ошибке возвращаем None, таймаут (connect, read)
+def http_get(url, params=None, headers=None, timeout=(2.5, 4.0)):
     try:
         return SESSION.get(url, params=params, headers=headers, timeout=timeout, verify=False)
     except Exception:
-        return http_get(url, params=params, headers=headers, timeout=timeout, verify=False)
+        return None
 
-VERSION = "v16.7"
-H_WEB = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/16.7", "Accept": "application/json"}
+VERSION = "v16.8"
+H_WEB = {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/122.0.0.0 Mobile Safari/537.36"}
+H_API = {"User-Agent": "TirBrowser/16.8", "Accept": "application/json"}
 
 AD_WORDS = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","доставка","кредит","займ","казино","ставки","услуги","прайс","an.yandex","googleadservices","doubleclick","yabs.yandex","cookie","политика конфиденциальности","войти","регистрация")
-STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живют","умер","такое","значит","это","ли","в","на","по","о","об")
+STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живут","умер","такое","значит","это","ли","в","на","по","о","об")
 KB_ROWS = ("йцукенгшщзхъ", "фывапролджэ", "ячсмитьбю")
 
 LOGS = []
@@ -55,28 +56,23 @@ def fix_glove_word(w):
         if not any((prev in r and ch in r and abs(r.find(prev) - r.find(ch)) == 1) for r in KB_ROWS): res.append(ch)
     return "".join(res) if len(res) >= 2 else w
 
-def make_fuzzy(text): return " ".join((w + "~" if len(w) >= 3 else w) for w in re.sub(r"[^\w\s-]", " ", text).split() if len(w) > 1)
-
 def try_weather(q):
     ql = q.lower().strip()
     if not any(w in ql for w in ("погод", "температур", "градус", "прогноз")): return ""
     words = [fix_glove_word(w) for w in re.sub(r"[^\w\s-]", " ", ql).split()]
-    stop_w = ("какая","какой","сегодня","сеодня","сигодня","севодня","завтра","сейчас","погода","погоду","в","во","на","улице","прогноз","температура","градусов")
+    stop_w = ("какая","какой","сегодня","сеодня","сигодня","завтра","сейчас","погода","погоду","в","во","на","улице","прогноз","температура","градусов")
     city = " ".join(w for w in words if w not in stop_w and len(w) > 2).strip()
     for cand in ([city, "Москва"] if city else ["Москва"]):
-        try:
-            g = http_get("https://api.open-meteo.com/v1/geocoding", params={"name": cand, "count": 1, "language": "ru"}, timeout=4.5)
-            res_g = g.json().get("results", []) if g.status_code == 200 else []
-            if res_g:
-                loc = res_g[0]
-                lat, lon, cname = loc.get("latitude"), loc.get("longitude"), loc.get("name", cand)
-                w = http_get("https://api.open-meteo.com/v1/forecast", params={"latitude": lat, "longitude": lon, "current_weather": "true"}, timeout=4.5)
-                cw = w.json().get("current_weather", {}) if w.status_code == 200 else {}
-                if "temperature" in cw:
-                    temp, wind, code = cw.get("temperature"), cw.get("windspeed"), cw.get("weathercode", 0)
-                    sky = "Ясно" if code == 0 else ("Переменная облачность" if code in (1, 2, 3) else ("Туман" if code in (45, 48) else ("Осадки" if code < 70 else "Снег")))
-                    return f"Погода ({cname}): {'+' if float(temp)>0 else ''}{temp}°C, {sky}, ветер {wind} км/ч"
-        except Exception: pass
+        g = http_get("https://api.open-meteo.com/v1/geocoding", params={"name": cand, "count": 1, "language": "ru"})
+        res_g = g.json().get("results", []) if g is not None and g.status_code == 200 else []
+        if res_g:
+            loc = res_g[0]
+            w = http_get("https://api.open-meteo.com/v1/forecast", params={"latitude": loc.get("latitude"), "longitude": loc.get("longitude"), "current_weather": "true"})
+            cw = w.json().get("current_weather", {}) if w is not None and w.status_code == 200 else {}
+            if "temperature" in cw:
+                temp, wind, code = cw.get("temperature"), cw.get("windspeed"), cw.get("weathercode", 0)
+                sky = "Ясно" if code == 0 else ("Переменная облачность" if code in (1, 2, 3) else ("Туман" if code in (45, 48) else ("Осадки" if code < 70 else "Снег")))
+                return f"Погода ({loc.get('name', cand)}): {'+' if float(temp)>0 else ''}{temp}°C, {sky}, ветер {wind} км/ч"
     return ""
 
 def try_smart_tools(q):
@@ -88,7 +84,7 @@ def try_smart_tools(q):
         cur = "EUR" if re.search(r"(евр|eur)", ql) else ("CNY" if re.search(r"(юан|cny)", ql) else "USD")
         val = 0.0
         try:
-            r = requests.get("https://open.er-api.com/v6/latest/" + cur, timeout=5.0, verify=False)
+            r = SESSION.get("https://open.er-api.com/v6/latest/" + cur, timeout=(2.5, 4.0), verify=False)
             if r.status_code == 200: val = float(r.json().get("rates", {}).get("RUB", 0))
         except Exception: pass
         if val > 0: return f"{amt} {cur} = {round(amt * val, 2)} RUB (курс: {round(val, 2)} руб.)"
@@ -99,13 +95,12 @@ def try_smart_tools(q):
         if txt:
             has_ru = bool(re.search(r"[а-яА-ЯёЁ]", txt))
             sl, tl = ("ru", "en") if has_ru else ("en", "ru")
-            try:
-                p = {"client": "gtx", "sl": sl, "tl": tl, "dt": "t", "q": txt}
-                r = requests.get("https://translate.googleapis.com/translate_a/single", params=p, headers=H_WEB, timeout=3.0, verify=False)
-                if r.status_code == 200 and r.text.strip().startswith("["):
+            r = http_get("https://translate.googleapis.com/translate_a/single", params={"client": "gtx", "sl": sl, "tl": tl, "dt": "t", "q": txt}, headers=H_WEB)
+            if r is not None and r.status_code == 200 and r.text.strip().startswith("["):
+                try:
                     tr = "".join(item[0] for item in r.json()[0] if item and item[0])
                     if tr and tr.lower() != txt.lower(): return f"ИИ-перевод ({sl} -> {tl}): {tr}"
-            except Exception: pass
+                except Exception: pass
     return ""
 
 def try_math(q):
@@ -117,34 +112,60 @@ def try_math(q):
         except Exception: pass
     return ""
 
-def word_exists(w):
+# ==================== БЫСТРЫЕ ИСТОЧНИКИ ОТВЕТА ====================
+
+def ddg_instant(q, out, done_ev):
+    """DuckDuckGo Instant Answers — один быстрый запрос"""
     try:
-        p = {"action": "query", "list": "search", "srsearch": w, "srlimit": 1, "format": "json"}
-        r = http_get("https://ru.wikipedia.org/w/api.php", params=p, headers=H_API, timeout=7.0, verify=False)
-        return any(w.lower() in it.get("title", "").lower() for it in r.json().get("query", {}).get("search", [])) if r.status_code == 200 else False
-    except Exception: return False
+        r = http_get("https://api.duckduckgo.com/", params={"q": q, "format": "json", "no_html": 1, "skip_disambig": 1, "kl": "ru-ru"})
+        if r is not None and r.status_code == 200:
+            d = r.json()
+            ans = str(d.get("Answer") or d.get("AbstractText") or d.get("Definition") or "").strip()
+            if ans and len(ans) > 15:
+                out["answer"] = ans
+                out["src"] = d.get("AbstractURL") or ""
+                done_ev.set()
+    except Exception: pass
 
-def check_typo(q):
-    if re.search(r"[a-zA-Z]", q): return " ".join(q.split()), False
-    qc = " ".join(q.split())
-    if len(qc.split()) == 1 and word_exists(qc): return qc, False
-    gq = " ".join(fix_glove_word(w) for w in qc.lower().split())
-    for cand in ([qc] if gq == qc.lower() else [qc, gq]):
-        try:
-            r = http_get("https://mail.ru", params={"q": cand}, headers=H_WEB, timeout=7.0, verify=False)
-            if r.status_code == 200 and r.text.strip().startswith("{"):
-                best = str(r.json().get("items", [{}])[0].get("text", "")).strip()
-                if best and best.lower() != qc.lower() and len(best) <= len(qc) + 8 and not word_exists(qc): return best, True
-        except Exception: pass
-    if gq != qc.lower() and not word_exists(qc) and word_exists(gq): return gq, True
-    return qc, False
+def wiki_summary(q, out, done_ev):
+    """Wikipedia REST summary — самый быстрый способ получить статью"""
+    try:
+        topic = extract_topic(q)
+        r = http_get("https://ru.wikipedia.org/w/api.php", params={"action":"opensearch","search":topic,"limit":1,"namespace":0,"format":"json","utf8":1}, headers=H_API)
+        if r is None or r.status_code != 200: return
+        data = r.json()
+        title = data[3][0] if len(data) > 3 and data[3] else None
+        if not title: return
+        s = http_get(f"https://ru.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(title)}", headers=H_API)
+        if s is None or s.status_code != 200: return
+        j = s.json()
+        ext = str(j.get("extract", "")).strip()
+        if ext and len(ext) > 30 and "уменьшительная форма" not in ext.lower():
+            out["answer"] = ext
+            out["src"] = j.get("content_urls", {}).get("desktop", {}).get("page", "")
+            out["title"] = title
+            done_ev.set()
+    except Exception: pass
 
-# ✅ ИСПРАВЛЕНО: потоки пишут в список (а не в dict) — надёжнее
-def stream_1_ddg(q, out_list):
+# ==================== ИСТОЧНИКИ (история поиска) ====================
+
+def wiki_search_cards(q, out_list):
+    try:
+        topic = extract_topic(q)
+        r = http_get("https://ru.wikipedia.org/w/api.php", params={"action":"query","list":"search","srsearch":topic,"srlimit":6,"format":"json","utf8":1}, headers=H_API)
+        items = r.json().get("query", {}).get("search", []) if r is not None and r.status_code == 200 else []
+        for w in items:
+            wt, ws = w.get("title", ""), clean_txt(w.get("snippet", ""))
+            wu = "https://ru.wikipedia.org/wiki/" + urllib.parse.quote(wt)
+            if wt and not is_ad(wu, wt): out_list.append({"src": "Вики", "url": wu, "title": wt, "snip": ws})
+        LOGS.append("Вики: " + str(len(out_list)))
+    except Exception: LOGS.append("Вики: сбой")
+
+def rambler_cards(q, out_list):
     cards, seen = [], set()
     try:
-        r = http_get("https://nova.rambler.ru/search", params={"query": q}, headers=H_WEB, timeout=7.0, verify=False)
-        if BeautifulSoup and r.status_code == 200:
+        r = http_get("https://nova.rambler.ru/search", params={"query": q}, headers=H_WEB)
+        if BeautifulSoup is not None and r is not None and r.status_code == 200:
             soup = BeautifulSoup(r.text, "html.parser")
             for a in soup.find_all("a", href=True):
                 if len(cards) >= 6: break
@@ -157,87 +178,20 @@ def stream_1_ddg(q, out_list):
                     sn = clean_txt(par.get_text(" ", strip=True).replace(t, "", 1)) if par else ""
                     cards.append({"src": "Рунет", "url": u, "title": t, "snip": sn})
     except Exception: pass
-    if not cards: cards = wiki_api_search("ru.ruwiki.ru", "Рунет", q)
     out_list.extend(cards)
     LOGS.append("Рунет: " + str(len(cards)))
 
-def wiki_api_search(domain, src_name, q, out_list):
-    cards = []
+def ddg_related(q, out_list):
     try:
-        topic = extract_topic(q)
-        p = {"action": "query", "list": "search", "srsearch": topic, "srlimit": 5, "format": "json", "utf8": 1}
-        r = http_get(f"https://{domain}/w/api.php", params=p, headers=H_API, timeout=7.0, verify=False)
-        items = r.json().get("query", {}).get("search", []) if (r.status_code == 200 and r.text.strip().startswith("{")) else []
-        if not items:
-            p["srsearch"] = make_fuzzy(topic)
-            r = http_get(f"https://{domain}/w/api.php", params=p, headers=H_API, timeout=7.0, verify=False)
-            items = r.json().get("query", {}).get("search", []) if (r.status_code == 200 and r.text.strip().startswith("{")) else []
-        for w in items:
-            wt, ws = w.get("title", ""), clean_txt(w.get("snippet", ""))
-            wu = f"https://{domain}/wiki/" + urllib.parse.quote(wt)
-            if wt and not is_ad(wu, wt): cards.append({"src": src_name, "url": wu, "title": wt, "snip": ws})
-        LOGS.append(src_name + ": " + str(len(cards)))
-    except Exception as e: LOGS.append(src_name + " сбой")
-    out_list.extend(cards)
-
-def stream_2_runet(q, out_list):
-    cards = []
-    wiki_api_search("ru.wiktionary.org", "Словарь", q, cards)
-    tws = [short_str(w, 4) for w in extract_topic(q).split() if len(w) > 2]
-    if tws:
-        cards = [c for c in cards if any(tw in c.get("title", "").lower() or tw in c.get("snip", "").lower() for tw in tws)]
-    out_list.extend(cards)
-
-def stream_3_wiki(q, out_list):
-    wiki_api_search("ru.wikipedia.org", "Вики", q, out_list)
-
-def read_wiki_fast(title, limit=3500):
-    if not title: return ""
-    try:
-        p = {"action": "query", "prop": "extracts", "explaintext": "1", "exintro": "1" if limit < 800 else "0", "titles": title, "format": "json"}
-        r = http_get("https://ru.wikipedia.org/w/api.php", params=p, headers=H_API, timeout=7.0, verify=False)
-        for pid in r.json().get("query", {}).get("pages", {}):
-            ext = r.json()["query"]["pages"][pid].get("extract", "")
-            if ext and len(ext.strip()) > 20: return short_str(ext.strip(), limit)
+        r = http_get("https://api.duckduckgo.com/", params={"q": q, "format": "json", "no_html": 1, "kl": "ru-ru"})
+        if r is not None and r.status_code == 200:
+            d = r.json()
+            for t in d.get("RelatedTopics", [])[:4]:
+                if isinstance(t, dict) and t.get("FirstURL") and t.get("Text"):
+                    txt = str(t["Text"]).strip()
+                    if len(txt) > 15 and not is_ad(t["FirstURL"], txt):
+                        out_list.append({"src": "DDG", "url": t["FirstURL"], "title": txt[:60], "snip": txt})
     except Exception: pass
-    return ""
-
-def clean_ans_text(t): return re.sub(r"\s+", " ", re.sub(r"\[[^\]]+\]|◆|\?\?|Корень:[^.]+\.|Существительное\.", " ", t)).strip()
-
-def smart_fact_answer(q, text_pool):
-    if not text_pool: return ""
-    need_num = any(w in q.lower() for w in ("сколько","возраст","лет","года","вес","рост","длина","скорость","температура","когда","год"))
-    tws = [short_str(w, 5) for w in extract_topic(q).split() if len(w) > 2]
-    sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", text_pool) if 18 <= len(s.strip()) <= 280]
-    if not need_num and sents:
-        for sc in sents:
-            if any(tw in sc.lower() for tw in tws) and (" — " in sc or " - " in sc or " это " in sc.lower()): return sc
-        return sents[0] if sents else ""
-    scored = []
-    for sc in sents:
-        score = sum(3 for tw in tws if tw in sc.lower())
-        if need_num and re.search(r"\d", sc): score += 9 if re.search(r"\b(лет|год|года|году|месяц|дней|дня|час|мин|сек|кг|г|тонн|км|м|см|мм|%|тыс|млн|млрд)\b", sc.lower()) else 5
-        if score >= 5: scored.append((score, sc))
-    if scored:
-        scored.sort(key=lambda x: x[0], reverse=True)
-        return " ".join(dict.fromkeys(s for _, s in scored[:2]))
-    return sents[0] if sents else ""
-
-def build_best_answer(uq, mixed):
-    wiki_text = ""
-    for item in (mixed or [])[:3]:
-        if item.get("src") == "Вики":
-            cand = read_wiki_fast(item.get("title", ""), 900)
-            if cand and "уменьшительная форма" not in cand.lower() and "топоним" not in cand.lower() and len(cand) > 80:
-                wiki_text = clean_ans_text(cand)
-                break
-    snips = [clean_ans_text(c.get("snip", "")) for c in mixed if len(c.get("snip", "").strip()) > 30 and "Существительное" not in c.get("snip", "")]
-    fact = smart_fact_answer(uq, (wiki_text + " " + " ".join(snips)).strip())
-    if fact and len(fact) > 35: return clean_ans_text(fact)
-    if wiki_text:
-        sents = [s.strip() for s in re.split(r"(?<=[.!?])\s+", wiki_text) if len(s.strip()) > 25]
-        return " ".join(sents[:2]) if sents else short_str(wiki_text, 350)
-    return " ".join(snips[:2]) if snips else "Точный ответ не найден."
 
 def get_domain(url):
     try:
@@ -245,6 +199,8 @@ def get_domain(url):
         return urlparse(url).netloc
     except Exception:
         return url[:30]
+
+# ==================== UI ====================
 
 def main(page: ft.Page):
     page.title = "Браузер Тир " + VERSION
@@ -268,13 +224,37 @@ def main(page: ft.Page):
 
     def open_url(url):
         try:
-            ft.utils.launch(url)
+            page.launch_url(url)
         except Exception:
-            page.show_snack_bar(ft.SnackBar(content=ft.Text("Не удалось открыть")))
+            pass
+
+    def render_card(item):
+        title = item.get("title", "")[:60]
+        url = item.get("url", "")
+        snip = item.get("snip", "")[:120]
+        src = item.get("src", "")
+        domain = get_domain(url)
+        card = ft.Container(
+            content=ft.Column([
+                ft.Text(f"🔗 {title}", color="#60A5FA", size=13, weight=ft.FontWeight.BOLD),
+                ft.Text(f"   {domain}  •  {src}", color="#64748B", size=10)
+            ], spacing=2),
+            padding=ft.Padding(8, 6, 8, 6),
+            ink=True,
+            on_click=lambda e, u=url: open_url(u)
+        )
+        results.controls.append(card)
+        if snip:
+            results.controls.append(ft.Container(ft.Text(snip, color="#CBD5E1", size=12), padding=ft.Padding(12, 0, 8, 0)))
+        results.controls.append(ft.Divider(color="#1E293B", height=4))
 
     def run_search():
         q = (ent.value or "").strip()
         if not q: return
+        if q not in HISTORY:
+            HISTORY.insert(0, q)
+            update_chips()
+
         spinner.visible = True
         status.value = "Ищем..."
         results.controls.clear()
@@ -282,66 +262,61 @@ def main(page: ft.Page):
 
         def worker():
             LOGS.clear()
-            m_ans = try_math(q) or try_weather(q) or try_smart_tools(q)
-            
+
+            # 1) Быстрые инструменты — мгновенно
+            m_ans = try_math(q) or try_smart_tools(q) or try_weather(q)
             if m_ans:
                 results.controls.append(ft.Text("⚡ Ответ", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
                 results.controls.append(ft.Text(m_ans, color="#F8FAFC", size=14))
-            else:
-                uq, has_typo = check_typo(q)
-                # ✅ ИСПРАВЛЕНО: используем списки вместо dict
-                c1, c2, c3 = [], [], []
-                t1 = threading.Thread(target=stream_1_ddg, args=(uq, c1))
-                t2 = threading.Thread(target=stream_2_runet, args=(uq, c2))
-                t3 = threading.Thread(target=stream_3_wiki, args=(uq, c3))
-                t1.start(); t2.start(); t3.start()
-                # ✅ Нормальные таймауты — 7 секунд
-                t1.join(7.0); t2.join(7.0); t3.join(7.0)
-                
-                mixed = [v for grp in zip(c1 + [None]*6, c2 + [None]*6, c3 + [None]*6) for v in grp if v]
-                ans = build_best_answer(uq, mixed)
+                spinner.visible = False
+                status.value = "Готово"
+                page.update()
+                return
 
+            # 2) Быстрый ответ: DDG и Wiki summary ПАРАЛЛЕЛЬНО, кто первый — тот и дал ответ
+            ans_slot = {}
+            ans_ev = threading.Event()
+            t_ddg = threading.Thread(target=ddg_instant, args=(q, ans_slot, ans_ev), daemon=True)
+            t_wiki = threading.Thread(target=wiki_summary, args=(q, ans_slot, ans_ev), daemon=True)
+            t_ddg.start(); t_wiki.start()
+
+            # ждём максимум 5 сек, но показываем сразу как пришёл
+            ans_ev.wait(5.0)
+            if ans_slot.get("answer"):
                 results.controls.append(ft.Text("⚡ Быстрый ответ", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
-                results.controls.append(ft.Text(ans, color="#F8FAFC", size=14))
+                results.controls.append(ft.Text(clean_txt(ans_slot["answer"])[:400], color="#F8FAFC", size=14))
+                if ans_slot.get("src"):
+                    results.controls.append(ft.TextButton(text="📖 Читать полностью", on_click=lambda e, u=ans_slot["src"]: open_url(u), color="#60A5FA"))
                 results.controls.append(ft.Divider(color="#334155"))
-                
-                results.controls.append(ft.Container(
-                    content=ft.Text("🔗 ИСТОЧНИКИ", color="#FBBF24", size=15, weight=ft.FontWeight.BOLD),
-                    padding=ft.Padding(0, 8, 0, 8)
-                ))
-                
-                if not mixed:
-                    results.controls.append(ft.Text("Ничего не найдено.", color="#94A3B8", size=13))
-                
-                for item in mixed[:8]:
-                    title = item.get("title", "")[:60]
-                    url = item.get("url", "")
-                    snip = item.get("snip", "")[:120] if item.get("snip") else ""
-                    src = item.get("src", "")
-                    domain = get_domain(url)
-                    
-                    link_btn = ft.Container(
-                        content=ft.Column([
-                            ft.Text(f"🔗 {title}", color="#60A5FA", size=13, weight=ft.FontWeight.BOLD),
-                            ft.Text(f"   {domain}  •  {src}", color="#64748B", size=10)
-                        ], spacing=2),
-                        padding=ft.Padding(8, 6, 8, 6),
-                        ink=True,
-                        on_click=lambda e, u=url: open_url(u)
-                    )
-                    results.controls.append(link_btn)
-                    
-                    if snip:
-                        results.controls.append(ft.Text(snip, color="#CBD5E1", size=12, indent=8))
-                    results.controls.append(ft.Divider(color="#1E293B", height=4))
-                
-                results.controls.append(ft.Divider(color="#334155"))
-                results.controls.append(ft.Text("📊 Потоки", color="#38BDF8", size=12, weight=ft.FontWeight.BOLD))
-                for log in LOGS:
-                    results.controls.append(ft.Text(log, color="#94A3B8", size=10))
+                page.update()
+
+            # 3) Источники — параллельно, догружаются ПОСЛЕ ответа
+            results.controls.append(ft.Text("🔗 ИСТОЧНИКИ", color="#FBBF24", size=15, weight=ft.FontWeight.BOLD))
+            page.update()
+
+            cards_wiki, cards_ramb, cards_ddg = [], [], []
+            t1 = threading.Thread(target=wiki_search_cards, args=(q, cards_wiki), daemon=True)
+            t2 = threading.Thread(target=rambler_cards, args=(q, cards_ramb), daemon=True)
+            t3 = threading.Thread(target=ddg_related, args=(q, cards_ddg), daemon=True)
+            t1.start(); t2.start(); t3.start()
+            t1.join(6.0); t2.join(6.0); t3.join(6.0)
+
+            mixed, seen = [], set()
+            for grp in zip(cards_wiki + [None]*6, cards_ramb + [None]*6, cards_ddg + [None]*6):
+                for v in grp:
+                    if v and v.get("url") not in seen:
+                        seen.add(v.get("url"))
+                        mixed.append(v)
+
+            if not mixed and not ans_slot.get("answer"):
+                results.controls.append(ft.Text("Ничего не найдено.", color="#94A3B8", size=13))
+
+            for item in mixed[:8]:
+                render_card(item)
+                page.update()  # ✅ показываем карточки по мере добавления
 
             spinner.visible = False
-            status.value = "Готово (" + str(len(LOGS)) + ")"
+            status.value = "Готово"
             page.update()
 
         threading.Thread(target=worker, daemon=True).start()
@@ -349,7 +324,7 @@ def main(page: ft.Page):
     def update_chips():
         chip.controls.clear()
         for h in HISTORY[:4]:
-            chip.controls.append(ft.ElevatedButton(h[:20], on_click=lambda e,v=h: (setattr(ent,"value",v), run_search()), bgcolor="#334155", color="#38BDF8"))
+            chip.controls.append(ft.ElevatedButton(h[:20], on_click=lambda e, v=h: (setattr(ent, "value", v), run_search()), bgcolor="#334155", color="#38BDF8"))
         page.update()
 
     update_chips()
