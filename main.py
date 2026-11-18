@@ -233,156 +233,44 @@ def build_best_answer(uq, mixed, c2, c3):
         return " ".join(sents[:2]) if sents else short_str(wiki_text, 350)
     return " ".join(snips[:2]) if snips else "Точный ответ не найден."
 
-# ==================== ИНТЕРФЕЙС ====================
-
 def main(page: ft.Page):
     page.title = "Браузер Тир " + VERSION
     page.bgcolor = "#0F172A"
     page.padding = 10
-    page.horizontal_alignment = ft.CrossAxisAlignment.STRETCH
 
-    ent = ft.TextField(
-        label="Запрос или адрес сайта",
-        bgcolor="#1E293B", color="#F8FAFC", cursor_color="#FFF",
-        border_color="#334155", focused_border_color="#3B82F6",
-        on_submit=lambda e: run_search()
-    )
-
-    # НАТИВНАЯ КРУТИЛКА (крутится сама, без потоков)
-    spinner = ft.ProgressRing(width=22, height=22, stroke_width=3, color="#38BDF8", bgcolor="#1E293B", visible=False)
-    status_line = ft.Text("Готов к работе", color="#94A3B8", size=13)
-    status_row = ft.Row([spinner, status_line], spacing=8, vertical_alignment=ft.CrossAxisAlignment.CENTER)
-
-    results_col = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=8)
-    results_col.controls.append(ft.Text("🌐 Браузер Тир " + VERSION, color="#F8FAFC", size=18, weight=ft.FontWeight.BOLD))
-    results_col.controls.append(ft.Text("Введите запрос или ссылку выше.", color="#94A3B8", size=14))
-
-    web_view = ft.WebView(
-        visible=False,
-        on_page_started=lambda e: update_web_status("Загрузка..."),
-        on_page_finished=lambda e: update_web_status("Готово"),
-        on_web_resource_error=lambda e: update_web_status("Ошибка загрузки")
-    )
-
-    nav_bar = ft.Row([
-        ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color="#F8FAFC", on_click=lambda e: web_view.back()),
-        ft.IconButton(icon=ft.Icons.ARROW_FORWARD, icon_color="#F8FAFC", on_click=lambda e: web_view.forward()),
-        ft.IconButton(icon=ft.Icons.REFRESH, icon_color="#F8FAFC", on_click=lambda e: web_view.reload()),
-        ft.IconButton(icon=ft.Icons.CLOSE, icon_color="#F8FAFC", on_click=lambda e: close_webview()),
-        ft.Text("Просмотр", color="#94A3B8", size=12, expand=True)
-    ], spacing=8, visible=False)
+    ent = ft.TextField(label="Запрос", bgcolor="#1E293B", color="#F8FAFC", border_color="#334155", focused_border_color="#3B82F6", on_submit=lambda e: run_search())
+    spinner = ft.ProgressRing(width=24, height=24, color="#38BDF8", visible=False)
+    status = ft.Text("Готов", color="#94A3B8", size=13)
+    results = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=8)
+    results.controls.append(ft.Text("🌐 Tir Browser " + VERSION, color="#F8FAFC", size=18, weight=ft.FontWeight.BOLD))
 
     chip = ft.Row([], wrap=True, spacing=8)
 
-    search_layer = ft.Column([
-        ft.Text("🌐 Браузер Тир " + VERSION, color="#F8FAFC", size=16, weight=ft.FontWeight.BOLD),
+    page.add(
+        ft.Text("🌐 Tir Browser " + VERSION, color="#F8FAFC", size=16, weight=ft.FontWeight.BOLD),
         ft.Row([ent, ft.ElevatedButton("НАЙТИ", on_click=lambda e: run_search(), bgcolor="#3B82F6", color="#FFF")]),
         chip,
-        ft.Row([
-            ft.ElevatedButton("🔖 ЗАКЛАДКИ", on_click=lambda e: show_bookmarks(), bgcolor="#334155", color="#FBBF24"),
-            ft.ElevatedButton("📋 ВСТАВИТЬ", on_click=lambda e: paste_clip(), bgcolor="#0F766E", color="#FFF")
-        ]),
-        status_row,
-        results_col
-    ], expand=True)
-
-    web_layer = ft.Container(
-        content=ft.Column([nav_bar, web_view], expand=True),
-        bgcolor="#0F172A",
-        expand=True,
-        visible=False
+        ft.Row([spinner, status], spacing=8),
+        results
     )
-
-    main_stack = ft.Stack([search_layer, web_layer], expand=True)
-    page.add(main_stack)
-
-    def open_webview(url):
-        if not url.startswith("http"): url = "https://" + url
-        web_view.url = url
-        web_view.visible = True
-        nav_bar.visible = True
-        web_layer.visible = True
-        page.update()
-
-    def close_webview():
-        web_layer.visible = False
-        web_view.visible = False
-        nav_bar.visible = False
-        page.update()
-
-    def update_web_status(text):
-        status_line.value = text
-        page.update()
 
     def run_search():
         q = (ent.value or "").strip()
         if not q: return
-        if q not in HISTORY: HISTORY.insert(0, q); update_chips()
-
-        if q.startswith("http://") or q.startswith("https://") or ("." in q and " " not in q):
-            if not q.startswith("http"): q = "https://" + q
-            open_webview(q)
-            return
-
-        # Включаем крутилку
         spinner.visible = True
-        status_line.value = "Ищем: " + q + " ..."
-        results_col.controls.clear()
+        status.value = "Ищем..."
+        results.controls.clear()
         page.update()
 
         def worker():
             LOGS.clear()
-            m_ans = try_math(q) or try_weather(q) or try_smart_tools(q)
-            
-            if m_ans:
-                results_col.controls.append(ft.Text("⚡ Ответ", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
-                results_col.controls.append(ft.Text(m_ans, color="#F8FAFC", size=14))
+            ans = try_math(q) or try_weather(q) or try_smart_tools(q)
+            if ans:
+                results.controls.append(ft.Text("⚡ " + ans, color="#F8FAFC", size=14))
             else:
-                uq, has_typo = check_typo(q)
-                res = {"c1": [], "c2": [], "c3": []}
-                t1 = threading.Thread(target=lambda: res.update(c1=stream_1_ddg(uq)))
-                t2 = threading.Thread(target=lambda: res.update(c2=stream_2_runet(uq)))
-                t3 = threading.Thread(target=lambda: res.update(c3=stream_3_wiki(uq)))
-                t1.start(); t2.start(); t3.start()
-                t1.join(5.0); t2.join(5.0); t3.join(5.0)
-                c1, c2, c3 = res["c1"], res["c2"], res["c3"]
-                mixed = [v for grp in zip(c1 + [None]*6, c2 + [None]*6, c3 + [None]*6) for v in grp if v]
-                ans = build_best_answer(uq, mixed, c2, c3)
-
-                results_col.controls.append(ft.Text("⚡ Быстрый ответ", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
-                results_col.controls.append(ft.Text(ans, color="#F8FAFC", size=14))
-                results_col.controls.append(ft.Divider(color="#334155"))
-                
-                results_col.controls.append(ft.Text("🔗 Источники (нажми чтобы открыть)", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
-                
-                if not mixed:
-                    results_col.controls.append(ft.Text("Ничего не найдено.", color="#94A3B8", size=13))
-                
-                for item in mixed[:10]:
-                    title = item.get("title", "")
-                    url = item.get("url", "")
-                    snip = item["snip"][:160] if item.get("snip") else ""
-                    src = item.get("src", "")
-                    
-                    link_btn = ft.TextButton(
-                        text=title,
-                        on_click=lambda e, u=url: open_webview(u),
-                        color="#60A5FA",
-                        style=ft.ButtonStyle(overlay_color="transparent", padding=ft.Padding(0, 0, 0, 0))
-                    )
-                    
-                    results_col.controls.append(link_btn)
-                    results_col.controls.append(ft.Text(f"`{src}`", color="#94A3B8", size=11))
-                    if snip: results_col.controls.append(ft.Text(snip, color="#CBD5E1", size=12))
-                    results_col.controls.append(ft.Divider(color="#1E293B", height=8))
-                
-                results_col.controls.append(ft.Divider(color="#334155"))
-                results_col.controls.append(ft.Text("📊 Статус потоков", color="#38BDF8", size=14, weight=ft.FontWeight.BOLD))
-                for log in LOGS: results_col.controls.append(ft.Text(log, color="#94A3B8", size=11))
-
-            # Выключаем крутилку
+                results.controls.append(ft.Text("Поиск: " + q, color="#F8FAFC", size=14))
             spinner.visible = False
-            status_line.value = "Готово (" + str(len(LOGS)) + " источников)"
+            status.value = "Готово"
             page.update()
 
         threading.Thread(target=worker, daemon=True).start()
@@ -390,30 +278,8 @@ def main(page: ft.Page):
     def update_chips():
         chip.controls.clear()
         for h in HISTORY[:4]:
-            chip.controls.append(ft.ElevatedButton(
-                h[:17]+(".." if len(h)>17 else ""),
-                on_click=lambda e,v=h: (setattr(ent,"value",v), run_search()),
-                bgcolor="#334155", color="#38BDF8"
-            ))
+            chip.controls.append(ft.ElevatedButton(h[:20], on_click=lambda e,v=h: (setattr(ent,"value",v), run_search()), bgcolor="#334155", color="#38BDF8"))
         page.update()
-
-    def show_bookmarks():
-        results_col.controls.clear()
-        results_col.controls.append(ft.Text("🔖 Закладки", color="#FBBF24", size=16, weight=ft.FontWeight.BOLD))
-        link_btn = ft.TextButton(text="Wikipedia", on_click=lambda e: open_webview("https://ru.wikipedia.org"), color="#60A5FA")
-        results_col.controls.append(link_btn)
-        status_line.value = "Закладки"
-        spinner.visible = False
-        page.update()
-
-    def paste_clip():
-        try:
-            if hasattr(page, 'clipboard') and page.clipboard:
-                txt = page.clipboard.get_data()
-                if txt:
-                    ent.value = (ent.value or "") + txt
-                    page.update()
-        except Exception: pass
 
     update_chips()
 
