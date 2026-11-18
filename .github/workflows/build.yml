@@ -22,15 +22,17 @@ jobs:
           distribution: 'temurin'
           java-version: '17'
       
-      # 🔧 УСТАНАВЛИВАЕМ GTK БИБЛИОТЕКИ (нужны для Flet build)
-      - name: Install GTK libraries
+      # 🔧 УСТАНАВЛИВАЕМ GTK И ANDROID NDK
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y libgtk-3-dev
+          echo "y" | sudo ${ANDROID_HOME}/tools/bin/sdkmanager --install "ndk;25.1.8937393"
       
+      # 📱 FLUTTER 3.22.3 (совместим с Flet 0.24.1)
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.24.0'
+          flutter-version: '3.22.3'
           channel: 'stable'
       
       - name: Accept Android licenses
@@ -39,14 +41,23 @@ jobs:
       - name: Install flet
         run: pip install flet==0.24.1 requests beautifulsoup4 lxml
       
+      # 🔍 ПРОВЕРКА ОКРУЖЕНИЯ
+      - name: Check environment
+        run: |
+          flutter doctor -v
+          python --version
+          pip list | grep flet
+      
+      # 🔨 СБОРКА APK С ПОДРОБНЫМ ЛОГОМ
       - name: Build APK
-        run: flet build apk
+        run: flet build apk --verbose
       
       - name: Find APK
         id: find
         run: |
           APK=$(find build -name "*.apk" | head -1)
           echo "apk=$APK" >> $GITHUB_OUTPUT
+          ls -lh $APK
       
       # 🔥 УДАЛЯЕМ ВСЕ СТАРЫЕ РЕЛИЗЫ
       - name: Delete old releases
