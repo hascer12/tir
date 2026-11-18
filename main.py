@@ -17,9 +17,9 @@ def http_get(url, params=None, headers=None, timeout=7.5, **kw):
     except Exception:
         return http_get(url, params=params, headers=headers, timeout=timeout, verify=False)
 
-VERSION = "v16.5"
+VERSION = "v16.7"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/16.5", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/16.7", "Accept": "application/json"}
 
 AD_WORDS = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","доставка","кредит","займ","казино","ставки","услуги","прайс","an.yandex","googleadservices","doubleclick","yabs.yandex","cookie","политика конфиденциальности","войти","регистрация")
 STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живют","умер","такое","значит","это","ли","в","на","по","о","об")
@@ -139,7 +139,8 @@ def check_typo(q):
     if gq != qc.lower() and not word_exists(qc) and word_exists(gq): return gq, True
     return qc, False
 
-def stream_1_ddg(q):
+# ✅ ИСПРАВЛЕНО: потоки пишут в список (а не в dict) — надёжнее
+def stream_1_ddg(q, out_list):
     cards, seen = [], set()
     try:
         r = http_get("https://nova.rambler.ru/search", params={"query": q}, headers=H_WEB, timeout=7.0, verify=False)
@@ -154,13 +155,13 @@ def stream_1_ddg(q):
                     seen.add(u)
                     par = a.find_parent(["article", "div", "li"])
                     sn = clean_txt(par.get_text(" ", strip=True).replace(t, "", 1)) if par else ""
-                    cards.append({"src": "Рунет 1", "url": u, "title": t, "snip": sn})
+                    cards.append({"src": "Рунет", "url": u, "title": t, "snip": sn})
     except Exception: pass
-    if not cards: cards = wiki_api_search("ru.ruwiki.ru", "Рунет 1", q)
-    LOGS.append("Поток 1 (Рунет): " + str(len(cards)))
-    return cards
+    if not cards: cards = wiki_api_search("ru.ruwiki.ru", "Рунет", q)
+    out_list.extend(cards)
+    LOGS.append("Рунет: " + str(len(cards)))
 
-def wiki_api_search(domain, src_name, q):
+def wiki_api_search(domain, src_name, q, out_list):
     cards = []
     try:
         topic = extract_topic(q)
@@ -176,15 +177,19 @@ def wiki_api_search(domain, src_name, q):
             wu = f"https://{domain}/wiki/" + urllib.parse.quote(wt)
             if wt and not is_ad(wu, wt): cards.append({"src": src_name, "url": wu, "title": wt, "snip": ws})
         LOGS.append(src_name + ": " + str(len(cards)))
-    except Exception as e: LOGS.append(src_name + " сбой: " + str(e))
-    return cards
+    except Exception as e: LOGS.append(src_name + " сбой")
+    out_list.extend(cards)
 
-def stream_2_runet(q):
-    cards = wiki_api_search("ru.wiktionary.org", "Словарь 2", q)
+def stream_2_runet(q, out_list):
+    cards = []
+    wiki_api_search("ru.wiktionary.org", "Словарь", q, cards)
     tws = [short_str(w, 4) for w in extract_topic(q).split() if len(w) > 2]
-    return [c for c in cards if any(tw in c.get("title", "").lower() or tw in c.get("snip", "").lower() for tw in tws)] if tws else cards
+    if tws:
+        cards = [c for c in cards if any(tw in c.get("title", "").lower() or tw in c.get("snip", "").lower() for tw in tws)]
+    out_list.extend(cards)
 
-def stream_3_wiki(q): return wiki_api_search("ru.wikipedia.org", "Вики 3", q)
+def stream_3_wiki(q, out_list):
+    wiki_api_search("ru.wikipedia.org", "Вики", q, out_list)
 
 def read_wiki_fast(title, limit=3500):
     if not title: return ""
@@ -218,13 +223,14 @@ def smart_fact_answer(q, text_pool):
         return " ".join(dict.fromkeys(s for _, s in scored[:2]))
     return sents[0] if sents else ""
 
-def build_best_answer(uq, mixed, c2, c3):
+def build_best_answer(uq, mixed):
     wiki_text = ""
-    for item in (c3 or [])[:3]:
-        cand = read_wiki_fast(item.get("title", ""), 900)
-        if cand and "уменьшительная форма" not in cand.lower() and "топоним" not in cand.lower() and len(cand) > 80:
-            wiki_text = clean_ans_text(cand)
-            break
+    for item in (mixed or [])[:3]:
+        if item.get("src") == "Вики":
+            cand = read_wiki_fast(item.get("title", ""), 900)
+            if cand and "уменьшительная форма" not in cand.lower() and "топоним" not in cand.lower() and len(cand) > 80:
+                wiki_text = clean_ans_text(cand)
+                break
     snips = [clean_ans_text(c.get("snip", "")) for c in mixed if len(c.get("snip", "").strip()) > 30 and "Существительное" not in c.get("snip", "")]
     fact = smart_fact_answer(uq, (wiki_text + " " + " ".join(snips)).strip())
     if fact and len(fact) > 35: return clean_ans_text(fact)
@@ -233,12 +239,12 @@ def build_best_answer(uq, mixed, c2, c3):
         return " ".join(sents[:2]) if sents else short_str(wiki_text, 350)
     return " ".join(snips[:2]) if snips else "Точный ответ не найден."
 
-def decode_url(u):
-    """Декодирует URL из %D0%95... в читаемый вид"""
+def get_domain(url):
     try:
-        return urllib.parse.unquote(u)
+        from urllib.parse import urlparse
+        return urlparse(url).netloc
     except Exception:
-        return u
+        return url[:30]
 
 def main(page: ft.Page):
     page.title = "Браузер Тир " + VERSION
@@ -249,7 +255,6 @@ def main(page: ft.Page):
     spinner = ft.ProgressRing(width=24, height=24, color="#38BDF8", visible=False)
     status = ft.Text("Готов", color="#94A3B8", size=13)
     results = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=8)
-    results.controls.append(ft.Text("🌐 Tir Browser " + VERSION, color="#F8FAFC", size=18, weight=ft.FontWeight.BOLD))
 
     chip = ft.Row([], wrap=True, spacing=8)
 
@@ -262,11 +267,10 @@ def main(page: ft.Page):
     )
 
     def open_url(url):
-        """Открывает ссылку в системном браузере"""
         try:
             ft.utils.launch(url)
         except Exception:
-            page.show_snack_bar(ft.SnackBar(content=ft.Text("Не удалось открыть ссылку")))
+            page.show_snack_bar(ft.SnackBar(content=ft.Text("Не удалось открыть")))
 
     def run_search():
         q = (ent.value or "").strip()
@@ -285,58 +289,59 @@ def main(page: ft.Page):
                 results.controls.append(ft.Text(m_ans, color="#F8FAFC", size=14))
             else:
                 uq, has_typo = check_typo(q)
-                res = {"c1": [], "c2": [], "c3": []}
-                t1 = threading.Thread(target=lambda: res.update(c1=stream_1_ddg(uq)))
-                t2 = threading.Thread(target=lambda: res.update(c2=stream_2_runet(uq)))
-                t3 = threading.Thread(target=lambda: res.update(c3=stream_3_wiki(uq)))
+                # ✅ ИСПРАВЛЕНО: используем списки вместо dict
+                c1, c2, c3 = [], [], []
+                t1 = threading.Thread(target=stream_1_ddg, args=(uq, c1))
+                t2 = threading.Thread(target=stream_2_runet, args=(uq, c2))
+                t3 = threading.Thread(target=stream_3_wiki, args=(uq, c3))
                 t1.start(); t2.start(); t3.start()
-                t1.join(5.0); t2.join(5.0); t3.join(5.0)
-                c1, c2, c3 = res["c1"], res["c2"], res["c3"]
+                # ✅ Нормальные таймауты — 7 секунд
+                t1.join(7.0); t2.join(7.0); t3.join(7.0)
+                
                 mixed = [v for grp in zip(c1 + [None]*6, c2 + [None]*6, c3 + [None]*6) for v in grp if v]
-                ans = build_best_answer(uq, mixed, c2, c3)
+                ans = build_best_answer(uq, mixed)
 
                 results.controls.append(ft.Text("⚡ Быстрый ответ", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
                 results.controls.append(ft.Text(ans, color="#F8FAFC", size=14))
                 results.controls.append(ft.Divider(color="#334155"))
                 
-                results.controls.append(ft.Text("🔗 Источники (нажми чтобы открыть)", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
+                results.controls.append(ft.Container(
+                    content=ft.Text("🔗 ИСТОЧНИКИ", color="#FBBF24", size=15, weight=ft.FontWeight.BOLD),
+                    padding=ft.Padding(0, 8, 0, 8)
+                ))
                 
                 if not mixed:
                     results.controls.append(ft.Text("Ничего не найдено.", color="#94A3B8", size=13))
                 
-                for item in mixed[:10]:
-                    title = item.get("title", "")
+                for item in mixed[:8]:
+                    title = item.get("title", "")[:60]
                     url = item.get("url", "")
-                    snip = item["snip"][:160] if item.get("snip") else ""
+                    snip = item.get("snip", "")[:120] if item.get("snip") else ""
                     src = item.get("src", "")
+                    domain = get_domain(url)
                     
-                    # КЛИКАБЕЛЬНАЯ ССЫЛКА — кнопка с заголовком
-                    link_btn = ft.TextButton(
-                        text=f"🔗 {title}",
-                        on_click=lambda e, u=url: open_url(u),
-                        color="#60A5FA",
-                        style=ft.ButtonStyle(
-                            overlay_color=ft.Colors.with_opacity(0.1, "#60A5FA"),
-                            padding=ft.Padding(0, 4, 0, 4)
-                        )
+                    link_btn = ft.Container(
+                        content=ft.Column([
+                            ft.Text(f"🔗 {title}", color="#60A5FA", size=13, weight=ft.FontWeight.BOLD),
+                            ft.Text(f"   {domain}  •  {src}", color="#64748B", size=10)
+                        ], spacing=2),
+                        padding=ft.Padding(8, 6, 8, 6),
+                        ink=True,
+                        on_click=lambda e, u=url: open_url(u)
                     )
                     results.controls.append(link_btn)
                     
-                    # Декодированный URL (читаемый)
-                    decoded = decode_url(url)
-                    results.controls.append(ft.Text(f"   {decoded}", color="#64748B", size=10, selectable=True))
-                    
                     if snip:
-                        results.controls.append(ft.Text(f"   {snip}", color="#CBD5E1", size=12))
-                    results.controls.append(ft.Divider(color="#1E293B", height=8))
+                        results.controls.append(ft.Text(snip, color="#CBD5E1", size=12, indent=8))
+                    results.controls.append(ft.Divider(color="#1E293B", height=4))
                 
                 results.controls.append(ft.Divider(color="#334155"))
-                results.controls.append(ft.Text("📊 Статус потоков", color="#38BDF8", size=14, weight=ft.FontWeight.BOLD))
+                results.controls.append(ft.Text("📊 Потоки", color="#38BDF8", size=12, weight=ft.FontWeight.BOLD))
                 for log in LOGS:
-                    results.controls.append(ft.Text(log, color="#94A3B8", size=11))
+                    results.controls.append(ft.Text(log, color="#94A3B8", size=10))
 
             spinner.visible = False
-            status.value = "Готово (" + str(len(LOGS)) + " источников)"
+            status.value = "Готово (" + str(len(LOGS)) + ")"
             page.update()
 
         threading.Thread(target=worker, daemon=True).start()
