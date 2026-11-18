@@ -17,9 +17,9 @@ def http_get(url, params=None, headers=None, timeout=7.5, **kw):
     except Exception:
         return http_get(url, params=params, headers=headers, timeout=timeout, verify=False)
 
-VERSION = "v15.6"
+VERSION = "v15.7"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/122.0.0.0 Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/15.6", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/15.7", "Accept": "application/json"}
 
 AD_WORDS = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","доставка","кредит","займ","казино","ставки","услуги","прайс","an.yandex","googleadservices","doubleclick","yabs.yandex","cookie","политика конфиденциальности","войти","регистрация")
 STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живут","умер","такое","значит","это","ли","в","на","по","о","об")
@@ -259,7 +259,7 @@ def build_best_answer(uq, mixed, c2, c3):
     if snips: return " ".join(snips[:2])
     return "Точный ответ не найден."
 
-# ==================== FLET ИНТЕРФЕЙС С КРАСИВЫМИ КАРТОЧКАМИ ====================
+# ==================== ПРОСТОЙ FLET ИНТЕРФЕЙС (как в v15.5, но с кликабельными ссылками) ====================
 
 def main(page: ft.Page):
     page.title = "Браузер Тир " + VERSION
@@ -277,66 +277,14 @@ def main(page: ft.Page):
         on_submit=lambda e: run_search()
     )
     
-    # Контейнер для результатов (будем очищать и заполнять)
-    results_col = ft.Column([], expand=True, scroll=ft.ScrollMode.AUTO, spacing=8)
+    out = ft.Text("Версия " + VERSION + " готова.", color="#F8FAFC", size=14, selectable=True)
+    sc = ft.Column([out], expand=True, scroll=ft.ScrollMode.AUTO)
     
-    def clear_results():
-        results_col.controls.clear()
-    
-    def add_text(text, color="#E2E8F0", size=14, bold=False, italic=False):
-        results_col.controls.append(ft.Text(
-            text, color=color, size=size,
-            weight=ft.FontWeight.BOLD if bold else ft.FontWeight.NORMAL,
-            font_style=ft.FontStyle.ITALIC if italic else ft.FontStyle.NORMAL
-        ))
-    
-    def add_card(src, title, url, snip, page_obj):
-        """Красивая карточка с кликабельной ссылкой"""
-        # Декодируем URL для красоты
-        nice_url = urllib.parse.unquote(url)
-        
-        # Определяем цвет бейджа по источнику
-        badge_colors = {
-            "Вики 3": "#3B82F6",
-            "Словарь 2": "#10B981",
-            "Рунет 1": "#F59E0B",
-        }
-        badge_color = badge_colors.get(src, "#6B7280")
-        
-        card = ft.Container(
-            content=ft.Column([
-                ft.Row([
-                    ft.Container(
-                        content=ft.Text(src, color="#FFF", size=10, weight=ft.FontWeight.BOLD),
-                        bgcolor=badge_color,
-                        padding=ft.padding.symmetric(horizontal=8, vertical=4),
-                        border_radius=12
-                    ),
-                ], spacing=8),
-                ft.Text(
-                    title,
-                    color="#38BDF8",
-                    size=14,
-                    weight=ft.FontWeight.BOLD,
-                    selectable=True,
-                    on_click=lambda e, u=url: ft.utils.launch(u)
-                ),
-                ft.Text(
-                    nice_url,
-                    color="#94A3B8",
-                    size=11,
-                    selectable=True,
-                    on_click=lambda e, u=url: ft.utils.launch(u)
-                ),
-                ft.Text(snip, color="#CBD5E1", size=12) if snip else ft.Container(height=0)
-            ], spacing=4),
-            bgcolor="#1E293B",
-            padding=ft.padding.all(12),
-            border_radius=8,
-            border=ft.border.all(1, "#334155"),
-            margin=ft.margin.only(bottom=8)
-        )
-        results_col.controls.append(card)
+    def open_url(url):
+        try:
+            ft.utils.launch(url)
+        except Exception:
+            pass
     
     def run_search():
         q = (ent.value or "").strip()
@@ -345,33 +293,18 @@ def main(page: ft.Page):
         
         if q.startswith("http://") or q.startswith("https://") or ("." in q and " " not in q):
             if not q.startswith("http"): q = "https://" + q
-            ft.utils.launch(q)
+            open_url(q)
             return
         
-        clear_results()
-        add_text("◐ Ищем «" + q + "»...", color="#F8FAFC", size=16, bold=True)
+        out.value = "◐ Ищем «" + q + "»..."
+        out.color = "#F8FAFC"
         page.update()
         
         def worker():
             LOGS.clear()
             m_ans = try_math(q) or try_weather(q) or try_smart_tools(q)
-            
-            clear_results()
-            
             if m_ans:
-                # Красивая карточка для быстрого ответа
-                card = ft.Container(
-                    content=ft.Column([
-                        ft.Text("⚡ БЫСТРЫЙ ОТВЕТ", color="#FBBF24", size=12, weight=ft.FontWeight.BOLD),
-                        ft.Text(m_ans, color="#F8FAFC", size=16, selectable=True)
-                    ], spacing=8),
-                    bgcolor="#172554",
-                    padding=ft.padding.all(16),
-                    border_radius=12,
-                    border=ft.border.all(2, "#3B82F6"),
-                    margin=ft.margin.only(bottom=12)
-                )
-                results_col.controls.append(card)
+                txt = "══ ОТВЕТ ══\n\n " + m_ans
             else:
                 uq, has_typo = check_typo(q)
                 res = {"c1": [], "c2": [], "c3": []}
@@ -383,41 +316,16 @@ def main(page: ft.Page):
                 c1, c2, c3 = res["c1"], res["c2"], res["c3"]
                 mixed = [v for grp in zip(c1 + [None]*6, c2 + [None]*6, c3 + [None]*6) for v in grp if v]
                 ans = build_best_answer(uq, mixed, c2, c3)
-                
-                # Карточка быстрого ответа
-                if ans and ans != "Точный ответ не найден.":
-                    card = ft.Container(
-                        content=ft.Column([
-                            ft.Text("⚡ БЫСТРЫЙ ОТВЕТ", color="#FBBF24", size=12, weight=ft.FontWeight.BOLD),
-                            ft.Text(ans, color="#F8FAFC", size=14, selectable=True)
-                        ], spacing=8),
-                        bgcolor="#172554",
-                        padding=ft.padding.all(16),
-                        border_radius=12,
-                        border=ft.border.all(2, "#3B82F6"),
-                        margin=ft.margin.only(bottom=12)
-                    )
-                    results_col.controls.append(card)
-                
-                # Заголовок источников
-                add_text("══ ИСТОЧНИКИ ══", color="#94A3B8", size=12, bold=True)
-                
-                # Карточки ссылок
+                txt = "══ БЫСТРЫЙ ОТВЕТ ══\n\n " + ans + "\n\n══ ИСТОЧНИКИ ══\n\n"
                 for item in mixed[:10]:
-                    add_card(
-                        item.get("src", ""),
-                        item.get("title", ""),
-                        item.get("url", ""),
-                        item.get("snip", ""),
-                        page
-                    )
-                
-                # Статус потоков
-                add_text("", color="#94A3B8", size=10)
-                add_text("══ СТАТУС ПОТОКОВ ══", color="#64748B", size=11, bold=True)
-                for log in LOGS:
-                    add_text(log, color="#64748B", size=11, italic=True)
-            
+                    # ДЕКОДИРУЕМ URL для красоты
+                    nice_url = urllib.parse.unquote(item.get("url", ""))
+                    txt += f"[{item.get('src', '')}] {item.get('title', '')}\n{nice_url}\n"
+                    if item.get("snip"): txt += item["snip"][:120] + "\n"
+                    txt += "\n"
+                txt += "══ СТАТУС ПОТОКОВ ══\n" + "\n".join(LOGS)
+            out.value = txt
+            out.color = "#E2E8F0"
             page.update()
         
         threading.Thread(target=worker, daemon=True).start()
@@ -443,15 +351,17 @@ def main(page: ft.Page):
             ft.ElevatedButton("🔖 ЗАКЛАДКИ", on_click=lambda e: show_bookmarks(), bgcolor="#334155", color="#FBBF24"),
             ft.ElevatedButton("📋 ВСТАВИТЬ", on_click=lambda e: paste_clip(), bgcolor="#0F766E", color="#FFF")
         ]),
-        results_col
+        sc
     )
     update_chips()
     
     def show_bookmarks():
-        clear_results()
-        add_text("🔖 ИЗБРАННЫЕ ЗАКЛАДКИ", color="#FBBF24", size=16, bold=True)
+        lines = ["🔖 ИЗБРАННЫЕ ЗАКЛАДКИ\n"]
         for idx, b in enumerate(BOOKMARKS, 1):
-            add_card("Закладка", b["title"], b["url"], "", page)
+            nice_url = urllib.parse.unquote(b.get("url", ""))
+            lines.append(f"{idx}. {b.get('title', '')}\n{nice_url}\n")
+        out.value = "\n".join(lines)
+        out.color = "#F8FAFC"
         page.update()
     
     def paste_clip():
