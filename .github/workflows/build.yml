@@ -48,7 +48,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.find.outputs.apk }}
-          tag_name: v16.8
-          name: Tir Browser v16.8 (Speed Fix)
+          tag_name: v16.9
+          name: Tir Browser v16.9 (Internal Browser)
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
