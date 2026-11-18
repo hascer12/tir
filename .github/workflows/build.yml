@@ -23,7 +23,7 @@ jobs:
       - name: Accept Android licenses
         run: yes | flutter doctor --android-licenses || true
       - name: Install flet
-        run: pip install flet==0.25.2 requests beautifulsoup4 lxml
+        run: pip install flet==0.24.1 requests beautifulsoup4 lxml
       - name: Build APK
         run: flet build apk
       - name: Find APK
@@ -35,8 +35,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.find.outputs.apk }}
-          tag_name: v16.1
-          name: Tir Browser v16.1 (White Screen Fix)
+          tag_name: v16.3
+          name: Tir Browser v16.3 (WebView Stack Fix)
           make_latest: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
