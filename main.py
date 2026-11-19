@@ -16,9 +16,9 @@ def http_get(url, params=None, headers=None, timeout=(2.5, 4.0)):
     except Exception:
         return None
 
-VERSION = "v17.0"
+VERSION = "v17.1"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/122.0.0.0 Mobile Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/17.0", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/17.1", "Accept": "application/json"}
 
 AD_WORDS = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","доставка","кредит","займ","казино","ставки","услуги","прайс","an.yandex","googleadservices","doubleclick","yabs.yandex","cookie","политика конфиденциальности","войти","регистрация")
 STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живут","умер","такое","значит","это","ли","в","на","по","о","об")
@@ -203,15 +203,14 @@ def main(page: ft.Page):
     results = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=8)
     chip = ft.Row([], wrap=True, spacing=8)
 
-    # ✅ БЕЗОПАСНЫЙ WEBVIEW (без несуществующих методов)
+    # ✅ WebView создается СКРЫТЫМ (visible=False) — это предотвращает белый экран
     web_view = ft.WebView(
-        visible=True,
+        visible=False,
         expand=True,
         on_page_started=lambda e: set_status("Загрузка..."),
         on_page_finished=lambda e: set_status("Готово"),
     )
 
-    # ✅ НАВИГАЦИЯ ЧЕРЕЗ JAVASCRIPT (не крашит приложение)
     nav_bar = ft.Row([
         ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color="#F8FAFC", on_click=lambda e: web_view.evaluate_javascript("history.back()")),
         ft.IconButton(icon=ft.Icons.REFRESH, icon_color="#F8FAFC", on_click=lambda e: web_view.evaluate_javascript("location.reload()")),
@@ -227,6 +226,7 @@ def main(page: ft.Page):
         results,
     ], expand=True)
 
+    # ✅ web_layer тоже скрыт при старте
     web_layer = ft.Container(
         content=ft.Column([nav_bar, web_view], expand=True, spacing=0),
         bgcolor="#0F172A",
@@ -244,11 +244,13 @@ def main(page: ft.Page):
         if not url.startswith("http"):
             url = "https://" + url
         web_view.url = url
+        web_view.visible = True  # ✅ Показываем WebView только когда есть URL
         web_layer.visible = True
         page.update()
 
     def close_webview():
         web_layer.visible = False
+        web_view.visible = False  # ✅ Скрываем WebView
         page.update()
 
     def render_card(item):
