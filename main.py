@@ -1,4 +1,4 @@
-import os, re, time, threading, urllib.parse, requests, urllib3
+import re, threading, urllib.parse, requests, urllib3
 import flet as ft
 
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -16,9 +16,9 @@ def http_get(url, params=None, headers=None, timeout=(2.5, 4.0)):
     except Exception:
         return None
 
-VERSION = "v17.1"
+VERSION = "v17.3"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/122.0.0.0 Mobile Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/17.1", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/17.3", "Accept": "application/json"}
 
 AD_WORDS = ("реклама","промо","спонсор","купить","цена","скидка","акция","заказать","доставка","кредит","займ","казино","ставки","услуги","прайс","an.yandex","googleadservices","doubleclick","yabs.yandex","cookie","политика конфиденциальности","войти","регистрация")
 STOP_Q = ("когда","кагда","где","кто","что","што","как","почему","зачем","сколько","какой","какая","какие","родился","радился","возраст","лет","года","живет","живут","умер","такое","значит","это","ли","в","на","по","о","об")
@@ -27,23 +27,23 @@ KB_ROWS = ("йцукенгшщзхъ", "фывапролджэ", "ячсмить
 LOGS = []
 HISTORY = ["Европейская норка", "100 долларов", "переведи breakthrough", "250 * 48"]
 
-def short_str(txt, limit): return str(txt)[:limit]
+def short_str(t, n): return str(t)[:n]
 
 def clean_txt(raw):
     if not raw: return ""
     if BeautifulSoup:
         try:
             soup = BeautifulSoup(str(raw), "html.parser")
-            for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "noscript"]): tag.decompose()
-            blocks = [el.get_text(" ", strip=True) for el in soup.find_all(["h1", "h2", "h3", "p", "li"])]
+            for tag in soup(["script","style","nav","footer","header","aside","form","noscript"]): tag.decompose()
+            blocks = [el.get_text(" ", strip=True) for el in soup.find_all(["h1","h2","h3","p","li"])]
             t = " ".join(b for b in blocks if len(b) > 25) if blocks else soup.get_text(" ", strip=True)
-            return " ".join(p for p in re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", t).strip()) if not any(w in p.lower() for w in AD_WORDS)).strip()
+            return " ".join(p for p in re.split(r"(?<=[.!?])\s+", re.sub(r"\s+"," ",t).strip()) if not any(w in p.lower() for w in AD_WORDS)).strip()
         except Exception: pass
-    return " ".join(p for p in re.split(r"(?<=[.!?])\s+", re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", raw)).strip()) if not any(w in p.lower() for w in AD_WORDS)).strip()
+    return re.sub(r"\s+"," ", re.sub(r"<[^>]+>"," ", raw)).strip()
 
-def is_ad(u, t): return any(w in (str(u) + " " + str(t)).lower() for w in AD_WORDS)
+def is_ad(u, t): return any(w in (str(u)+" "+str(t)).lower() for w in AD_WORDS)
 def extract_topic(q):
-    words = [w for w in re.sub(r"[^\w\s-]", " ", q.lower()).split() if w not in STOP_Q and len(w) > 1]
+    words = [w for w in re.sub(r"[^\w\s-]"," ",q.lower()).split() if w not in STOP_Q and len(w) > 1]
     return " ".join(words).strip() if words else q
 
 def fix_glove_word(w):
@@ -203,22 +203,8 @@ def main(page: ft.Page):
     results = ft.Column(scroll=ft.ScrollMode.AUTO, expand=True, spacing=8)
     chip = ft.Row([], wrap=True, spacing=8)
 
-    # ✅ WebView создается СКРЫТЫМ (visible=False) — это предотвращает белый экран
-    web_view = ft.WebView(
-        visible=False,
-        expand=True,
-        on_page_started=lambda e: set_status("Загрузка..."),
-        on_page_finished=lambda e: set_status("Готово"),
-    )
-
-    nav_bar = ft.Row([
-        ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color="#F8FAFC", on_click=lambda e: web_view.evaluate_javascript("history.back()")),
-        ft.IconButton(icon=ft.Icons.REFRESH, icon_color="#F8FAFC", on_click=lambda e: web_view.evaluate_javascript("location.reload()")),
-        ft.IconButton(icon=ft.Icons.CLOSE, icon_color="#F8FAFC", on_click=lambda e: close_webview()),
-        ft.Text("Внутренний браузер", color="#94A3B8", size=12, expand=True),
-    ], spacing=4)
-
-    search_layer = ft.Column([
+    # === ВКЛАДКА 1: ПОИСК ===
+    search_tab = ft.Column([
         ft.Text("🌐 Tir Browser " + VERSION, color="#F8FAFC", size=16, weight=ft.FontWeight.BOLD),
         ft.Row([ent, ft.ElevatedButton("НАЙТИ", on_click=lambda e: run_search(), bgcolor="#3B82F6", color="#FFF")]),
         chip,
@@ -226,31 +212,55 @@ def main(page: ft.Page):
         results,
     ], expand=True)
 
-    # ✅ web_layer тоже скрыт при старте
-    web_layer = ft.Container(
-        content=ft.Column([nav_bar, web_view], expand=True, spacing=0),
-        bgcolor="#0F172A",
+    # === ВКЛАДКА 2: БРАУЗЕР (WebView) ===
+    # WebView создается сразу, но лежит во второй вкладке. Tabs не ломают его рендер.
+    web_view = ft.WebView(
         expand=True,
-        visible=False,
+        on_page_started=lambda e: set_status("Загрузка..."),
+        on_page_finished=lambda e: set_status("Готово"),
     )
 
-    page.add(ft.Stack([search_layer, web_layer], expand=True))
+    nav_bar = ft.Row([
+        ft.IconButton(icon=ft.Icons.ARROW_BACK, icon_color="#F8FAFC", on_click=lambda e: safe_js("history.back()")),
+        ft.IconButton(icon=ft.Icons.REFRESH, icon_color="#F8FAFC", on_click=lambda e: safe_js("location.reload()")),
+        ft.IconButton(icon=ft.Icons.CLOSE, icon_color="#F8FAFC", on_click=lambda e: close_browser()),
+        ft.Text("Внутренний браузер", color="#94A3B8", size=12, expand=True),
+    ], spacing=4)
+
+    browser_tab = ft.Column([nav_bar, web_view], expand=True, spacing=0)
+
+    # === ГЛАВНЫЙ КОНТРОЛЛЕР: TABS ===
+    main_tabs = ft.Tabs(
+        selected_index=0,
+        animation_duration=300,
+        tabs=[
+            ft.Tab(text="Поиск", content=search_tab),
+            ft.Tab(text="Браузер", content=browser_tab),
+        ],
+        expand=True,
+    )
+
+    page.add(main_tabs)
 
     def set_status(text):
         status.value = text
         page.update()
 
-    def open_webview(url):
+    def safe_js(script):
+        try:
+            web_view.evaluate_javascript(script)
+        except Exception:
+            pass
+
+    def open_browser(url):
         if not url.startswith("http"):
             url = "https://" + url
         web_view.url = url
-        web_view.visible = True  # ✅ Показываем WebView только когда есть URL
-        web_layer.visible = True
+        main_tabs.selected_index = 1  # Переключаем на вкладку "Браузер"
         page.update()
 
-    def close_webview():
-        web_layer.visible = False
-        web_view.visible = False  # ✅ Скрываем WebView
+    def close_browser():
+        main_tabs.selected_index = 0  # Возвращаемся на вкладку "Поиск"
         page.update()
 
     def render_card(item):
@@ -265,7 +275,7 @@ def main(page: ft.Page):
             ], spacing=2),
             padding=ft.Padding(8, 6, 8, 6),
             ink=True,
-            on_click=lambda e, u=url: open_webview(u),
+            on_click=lambda e, u=url: open_browser(u),
         )
         results.controls.append(card)
         if snip:
@@ -280,7 +290,7 @@ def main(page: ft.Page):
             update_chips()
 
         if q.startswith("http://") or q.startswith("https://") or ("." in q and " " not in q):
-            open_webview(q)
+            open_browser(q)
             return
 
         spinner.visible = True
@@ -310,7 +320,7 @@ def main(page: ft.Page):
                 results.controls.append(ft.Text("⚡ Быстрый ответ", color="#38BDF8", size=16, weight=ft.FontWeight.BOLD))
                 results.controls.append(ft.Text(clean_txt(ans_slot["answer"])[:400], color="#F8FAFC", size=14))
                 if ans_slot.get("src"):
-                    results.controls.append(ft.TextButton(text="📖 Читать полностью", on_click=lambda e, u=ans_slot["src"]: open_webview(u), color="#60A5FA"))
+                    results.controls.append(ft.TextButton(text="📖 Читать полностью", on_click=lambda e, u=ans_slot["src"]: open_browser(u), color="#60A5FA"))
                 results.controls.append(ft.Divider(color="#334155"))
                 page.update()
 
