@@ -1,11 +1,10 @@
 [project]
 name = "tir"
-version = "16.4"
+version = "17.4"
 description = "Tir Browser"
 requires-python = ">=3.11"
 dependencies = [
     "flet==0.25.2",
     "requests",
     "beautifulsoup4",
-    "lxml"
 ]
