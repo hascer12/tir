@@ -8,13 +8,11 @@ try:
 except Exception:
     BeautifulSoup = None
 
-WV_CLASS = getattr(ft, "WebView", None)
-if WV_CLASS is None:
-    try:
-        import flet_webview as _fwv
-        WV_CLASS = _fwv.WebView
-    except Exception:
-        WV_CLASS = None
+try:
+    import flet_webview as _fwv
+    WV_CLASS = _fwv.WebView
+except Exception:
+    WV_CLASS = None
 
 SESSION = requests.Session()
 SESSION.trust_env = False
@@ -41,9 +39,7 @@ def clean_txt(raw):
             soup = BeautifulSoup(str(raw), "html.parser")
             for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "noscript"]):
                 tag.decompose()
-            blocks = [el.get_text(" ", strip=True) for el in soup.find_all(["h1", "h2", "h3", "p", "li"])]
-            t = " ".join(b for b in blocks if len(b) > 25) if blocks else soup.get_text(" ", strip=True)
-            t = re.sub(r"\s+", " ", t).strip()
+            t = re.sub(r"\s+", " ", " ".join(el.get_text(" ", strip=True) for el in soup.find_all(["h1", "h2", "h3", "p", "li"]))).strip()
             return " ".join(p for p in re.split(r"(?<=[.!?])\s+", t) if not any(w in p.lower() for w in AD_WORDS)).strip()
         except Exception:
             pass
@@ -136,10 +132,9 @@ def wiki_summary(q, out, ev):
         if r is None or r.status_code != 200:
             return
         data = r.json()
-        title = data[3][0] if len(data) > 3 and data[3] else None
+        title = data[1][0] if len(data) > 1 and data[1] else None
         if not title:
             return
-        title = urllib.parse.unquote(title.rsplit("/", 1)[-1]) if title.startswith("http") else title
         s = http_get("https://ru.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(title), headers=H_API)
         if s is None or s.status_code != 200:
             return
@@ -181,9 +176,7 @@ def rambler_cards(q, out_list):
                 t = re.sub(r"\s+", " ", a.get_text(" ", strip=True)).strip()
                 if len(t) > 12 and not is_ad(u, t):
                     seen.add(u)
-                    par = a.find_parent(["article", "div", "li"])
-                    sn = clean_txt(par.get_text(" ", strip=True).replace(t, "", 1)) if par else ""
-                    out_list.append({"src": "Рунет", "url": u, "title": t, "snip": sn})
+                    out_list.append({"src": "Рунет", "url": u, "title": t, "snip": ""})
     except Exception:
         pass
 
@@ -222,7 +215,7 @@ def B(text, fn, bg="#334155", color="#F8FAFC"):
 def build_ui(page: ft.Page):
     page.title = "Браузер Тир " + VERSION
     page.bgcolor = "#0F172A"
-    page.padding = 10
+    page.padding = ft.padding.only(left=10, top=36, right=10, bottom=10)
     cur = {"url": "", "title": "", "wv": None, "text_loaded": False, "mode": "web"}
 
     ent = ft.TextField(label="Запрос", bgcolor="#1E293B", color="#F8FAFC", border_color="#334155", focused_border_color="#3B82F6", expand=True, on_submit=lambda e: run_search())
