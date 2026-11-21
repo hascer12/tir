@@ -27,7 +27,7 @@ jobs:
       - name: Accept licenses
         run: yes | flutter doctor --android-licenses || true
       - name: Install flet
-        run: pip install flet==0.25.2 requests beautifulsoup4 lxml
+        run: pip install flet==0.26.0 flet-webview==0.1.0 requests beautifulsoup4
       - name: Build APK
         run: flet build apk
       - name: Find APK
@@ -45,7 +45,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.find.outputs.apk }}
-          tag_name: v17.3
-          name: Tir Browser v17.3
+          tag_name: v17.5
+          name: Tir Browser v17.5
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
