@@ -4,8 +4,11 @@ version = "17.5"
 description = "Tir Browser"
 requires-python = ">=3.11"
 dependencies = [
-    "flet==0.26.0",
-    "flet-webview==0.1.0",
+    "flet==0.28.3",
+    "flet-webview==0.2.0",
     "requests",
     "beautifulsoup4",
 ]
+
+[tool.flet.flutter.pubspec.dependency_overrides]
+webview_flutter_android = "4.10.1"
