@@ -27,7 +27,7 @@ jobs:
       - name: Accept licenses
         run: yes | flutter doctor --android-licenses || true
       - name: Install flet
-        run: pip install flet==0.26.0 flet-webview==0.1.0 requests beautifulsoup4
+        run: pip install flet==0.28.3 flet-webview==0.1.0 requests beautifulsoup4
       - name: Build APK
         run: flet build apk
       - name: Find APK
