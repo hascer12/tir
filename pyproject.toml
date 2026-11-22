@@ -5,7 +5,7 @@ description = "Tir Browser"
 requires-python = ">=3.11"
 dependencies = [
     "flet==0.28.3",
-    "flet-webview==0.2.0",
+    "flet-webview==0.1.0",
     "requests",
     "beautifulsoup4",
 ]
