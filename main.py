@@ -16,9 +16,9 @@ except Exception:
 
 SESSION = requests.Session()
 SESSION.trust_env = False
-VERSION = "v17.5"
+VERSION = "v17.6"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/122.0.0.0 Mobile Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/17.5", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/17.6", "Accept": "application/json"}
 AD_WORDS = ("реклама", "промо", "спонсор", "купить", "цена", "скидка", "акция", "заказать", "доставка", "кредит", "займ", "казино", "ставки", "услуги", "прайс", "an.yandex", "googleadservices", "doubleclick", "yabs.yandex", "cookie", "политика конфиденциальности", "войти", "регистрация")
 STOP_Q = ("когда", "кагда", "где", "кто", "что", "што", "как", "почему", "зачем", "сколько", "какой", "какая", "какие", "родился", "радился", "возраст", "лет", "года", "живет", "живут", "умер", "такое", "значит", "это", "ли", "в", "на", "по", "о", "об")
 HISTORY = ["Европейская норка", "100 долларов", "переведи breakthrough", "250 * 48"]
@@ -39,7 +39,8 @@ def clean_txt(raw):
             soup = BeautifulSoup(str(raw), "html.parser")
             for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "noscript"]):
                 tag.decompose()
-            t = re.sub(r"\s+", " ", " ".join(el.get_text(" ", strip=True) for el in soup.find_all(["h1", "h2", "h3", "p", "li"]))).strip()
+            blocks = " ".join(el.get_text(" ", strip=True) for el in soup.find_all(["h1", "h2", "h3", "p", "li"]))
+            t = re.sub(r"\s+", " ", blocks or soup.get_text(" ", strip=True)).strip()
             return " ".join(p for p in re.split(r"(?<=[.!?])\s+", t) if not any(w in p.lower() for w in AD_WORDS)).strip()
         except Exception:
             pass
@@ -196,7 +197,7 @@ def load_page_text(url):
 def make_webview(url, on_start, on_end):
     if WV_CLASS is None:
         return None
-    for kw in (dict(on_page_started=on_start, on_page_ended=on_end), dict()):
+    for kw in (dict(on_page_started=on_start, on_page_ended=on_end, enable_javascript=True), dict(on_page_started=on_start, on_page_ended=on_end), dict()):
         try:
             return WV_CLASS(url=url, expand=True, **kw)
         except Exception:
@@ -316,6 +317,7 @@ def build_ui(page: ft.Page):
     def open_link(url, title=""):
         if not url.startswith("http"):
             url = "https://" + url
+        url = url.replace("//ru.wikipedia.org", "//ru.m.wikipedia.org")
         cur.update(url=url, title=title, text_loaded=False)
         r_title.value = title or get_domain(url)
         r_url.value = url
