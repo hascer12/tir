@@ -1,4 +1,4 @@
-import re, threading, urllib.parse, traceback
+import re, json, threading, urllib.parse, traceback
 import html as html_mod
 import requests, urllib3
 import flet as ft
@@ -9,25 +9,34 @@ try:
 except Exception:
     BeautifulSoup = None
 
+REP = []
+
+
+def rep(m):
+    REP.append(str(m)[:150])
+    del REP[:-40]
+
+
 try:
     import flet_webview as _fwv
     WV_CLASS = _fwv.WebView
-except Exception:
+except Exception as e:
     _fwv = None
     WV_CLASS = None
+    rep("flet_webview не импортируется: " + str(e))
 
 SESSION = requests.Session()
 SESSION.trust_env = False
 VERSION = "v17.9"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/122.0.0.0 Mobile Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/17.9", "Accept": "application/json"}
-AD_WORDS = ("реклама", "промо", "спонсор", "купить", "скидка", "акция", "кредит", "займ", "казино", "ставки", "an.yandex", "googleadservices", "doubleclick", "yabs.yandex", "cookie", "политика конфиденциальности", "войти", "регистрация")
-STOP_Q = ("когда", "где", "кто", "что", "как", "почему", "зачем", "сколько", "какой", "какая", "какие", "родился", "возраст", "лет", "года", "такое", "значит", "это", "ли", "в", "на", "по", "о", "об")
+H_API = {"User-Agent": "TirBrowser/17.9"}
+AD_WORDS = ("реклама", "спонсор", "купить", "скидка", "казино", "ставки", "an.yandex", "doubleclick", "cookie", "войти", "регистрация")
+STOP_Q = ("когда", "где", "кто", "что", "как", "почему", "сколько", "какой", "какая", "какие", "родился", "возраст", "лет", "такое", "это", "ли", "в", "на", "по", "о")
 VIDEO_HOSTS = ("rutube.ru", "youtube.com", "youtu.be", "vk.com/video", "vkvideo.ru", "ok.ru/video")
 S = {"dark": True, "video_ext": True, "text": False}
 PAL = {
-    True: dict(bg="#0F172A", field="#1E293B", text="#F8FAFC", sub="#94A3B8", link="#60A5FA", btn="#334155", acc="#38BDF8", warn="#FBBF24", dim="#64748B"),
-    False: dict(bg="#F8FAFC", field="#FFFFFF", text="#0F172A", sub="#475569", link="#2563EB", btn="#E2E8F0", acc="#0284C7", warn="#B45309", dim="#94A3B8"),
+    True: dict(bg="#0F172A", field="#1E293B", text="#F8FAFC", sub="#94A3B8", link="#60A5FA", btn="#334155", acc="#38BDF8", dim="#64748B"),
+    False: dict(bg="#F8FAFC", field="#FFFFFF", text="#0F172A", sub="#475569", link="#2563EB", btn="#E2E8F0", acc="#0284C7", dim="#94A3B8"),
 }
 HISTORY = ["Европейская норка", "100 долларов", "погода в Москве", "250 * 48"]
 
@@ -45,7 +54,7 @@ def clean_txt(raw):
     if BeautifulSoup:
         try:
             soup = BeautifulSoup(str(raw), "html.parser")
-            for tag in soup(["script", "style", "nav", "footer", "header", "aside", "form", "noscript"]):
+            for tag in soup(["script", "style", "nav", "footer", "aside"]):
                 tag.decompose()
             blocks = " ".join(el.get_text(" ", strip=True) for el in soup.find_all(["h1", "h2", "h3", "p", "li"]))
             t = re.sub(r"\s+", " ", blocks or soup.get_text(" ", strip=True)).strip()
@@ -69,47 +78,39 @@ def get_domain(url):
 
 
 def try_weather(q):
-    ql = q.lower().strip()
+    ql = q.lower()
     if not any(w in ql for w in ("погод", "температур", "градус", "прогноз")):
         return ""
-    words = re.sub(r"[^\w\s-]", " ", ql).split()
-    stop_w = ("какая", "какой", "сегодня", "завтра", "сейчас", "погода", "погоду", "в", "во", "на", "прогноз", "температура")
-    city = " ".join(w for w in words if w not in stop_w and len(w) > 2).strip()
-    for cand in ([city, "Москва"] if city else ["Москва"]):
-        g = http_get("https://geocoding-api.open-meteo.com/v1/search", params={"name": cand, "count": 1, "language": "ru"})
-        res_g = g.json().get("results", []) if g is not None and g.status_code == 200 else []
-        if res_g:
-            loc = res_g[0]
-            w = http_get("https://api.open-meteo.com/v1/forecast", params={"latitude": loc.get("latitude"), "longitude": loc.get("longitude"), "current_weather": "true"})
-            cw = w.json().get("current_weather", {}) if w is not None and w.status_code == 200 else {}
-            if "temperature" in cw:
-                temp, wind, code = cw.get("temperature"), cw.get("windspeed"), cw.get("weathercode", 0)
-                sky = "Ясно" if code == 0 else ("Облачно" if code < 4 else ("Туман" if code < 50 else ("Осадки" if code < 70 else "Снег")))
-                return f"Погода ({loc.get('name', cand)}): {'+' if float(temp) > 0 else ''}{temp}°C, {sky}, ветер {wind} км/ч"
-    return ""
+    stop = ("какая", "какой", "сегодня", "завтра", "сейчас", "погода", "погоду", "в", "во", "на", "прогноз", "температура")
+    city = " ".join(w for w in re.sub(r"[^\w\s-]", " ", ql).split() if w not in stop and len(w) > 2) or "Москва"
+    g = http_get("https://geocoding-api.open-meteo.com/v1/search", params={"name": city, "count": 1, "language": "ru"})
+    res = g.json().get("results") if g is not None and g.status_code == 200 else None
+    if not res:
+        return ""
+    loc = res[0]
+    w = http_get("https://api.open-meteo.com/v1/forecast", params={"latitude": loc.get("latitude"), "longitude": loc.get("longitude"), "current_weather": "true"})
+    cw = w.json().get("current_weather") if w is not None and w.status_code == 200 else None
+    if not cw:
+        return ""
+    t, code = cw.get("temperature"), cw.get("weathercode", 0)
+    sky = "Ясно" if code == 0 else ("Облачно" if code < 4 else ("Туман" if code < 50 else ("Осадки" if code < 70 else "Снег")))
+    return f"Погода ({loc.get('name', city)}): {t}°C, {sky}, ветер {cw.get('windspeed')} км/ч"
 
 
 def try_smart_tools(q):
-    ql = q.lower().strip()
-    has_cur = bool(re.search(r"(дол|жол|usd|usa|сша|евр|eur|юан|cny)", ql))
-    if has_cur and (any(w in ql for w in ("курс", "волют", "валют", "рубл", "скольк", "цен", "стои", "в ")) or re.search(r"\d", ql)):
-        m = re.search(r"(\d+(?:[.,]\d+)?)", ql)
-        amt = float(m.group(1).replace(",", ".")) if m else 1.0
-        cur = "EUR" if re.search(r"(евр|eur)", ql) else ("CNY" if re.search(r"(юан|cny)", ql) else "USD")
-        val = 0.0
-        try:
-            r = SESSION.get("https://open.er-api.com/v6/latest/" + cur, timeout=(3.0, 6.0), verify=False)
-            if r.status_code == 200:
-                val = float(r.json().get("rates", {}).get("RUB", 0))
-        except Exception:
-            pass
-        if val > 0:
-            return f"{amt} {cur} = {round(amt * val, 2)} RUB (курс: {round(val, 2)} руб.)"
-    return ""
+    ql = q.lower()
+    cur = "EUR" if re.search(r"евр|eur", ql) else "CNY" if re.search(r"юан|cny", ql) else "USD" if re.search(r"дол|usd|сша", ql) else ""
+    if not cur or not re.search(r"\d|курс", ql):
+        return ""
+    m = re.search(r"\d+(?:[.,]\d+)?", ql)
+    amt = float(m.group().replace(",", ".")) if m else 1.0
+    r = http_get("https://open.er-api.com/v6/latest/" + cur)
+    val = float(r.json().get("rates", {}).get("RUB", 0)) if r is not None and r.status_code == 200 else 0
+    return f"{amt} {cur} = {round(amt * val, 2)} RUB (курс {round(val, 2)})" if val else ""
 
 
 def try_math(q):
-    expr = q.lower().replace("сколько будет", "").replace("посчитай", "").replace("=", "").replace(",", ".").replace("х", "*").replace("x", "*").replace(":", "/").strip()
+    expr = q.lower().replace("=", "").replace(",", ".").replace("х", "*").replace("x", "*").replace(":", "/").strip()
     if expr and re.fullmatch(r"[0-9+\-*/().\s]+", expr) and any(op in expr for op in "+-*/"):
         try:
             res = eval(expr, {"__builtins__": None}, {})
@@ -133,7 +134,7 @@ def wiki_summary(q, out, ev):
             return
         j = s.json()
         ext = str(j.get("extract", "")).strip()
-        if ext and len(ext) > 30 and "уменьшительная форма" not in ext.lower():
+        if ext and len(ext) > 30:
             out["answer"], out["title"] = ext, title
             out["src"] = j.get("content_urls", {}).get("desktop", {}).get("page", "")
             ev.set()
@@ -150,13 +151,15 @@ def wiki_search_cards(q, out_list):
             wu = "https://ru.wikipedia.org/wiki/" + urllib.parse.quote(wt)
             if wt and not is_ad(wu, wt):
                 out_list.append({"src": "Вики", "url": wu, "title": wt, "snip": ws})
-    except Exception:
-        pass
+        rep("Вики: %d" % len(out_list))
+    except Exception as e:
+        rep("Вики: " + str(e)[:50])
 
 
 def ddg_cards(q, out_list):
     r = http_get("https://html.duckduckgo.com/html/", params={"q": q, "kl": "ru-ru"}, headers=H_WEB, timeout=(4.0, 8.0))
     if r is None or r.status_code != 200:
+        rep("DDG: " + ("нет ответа" if r is None else str(r.status_code)))
         return
     for m in re.finditer(r"<a\b[^>]*result__a[^>]*>.*?</a>", r.text, re.S):
         a = m.group(0)
@@ -169,6 +172,7 @@ def ddg_cards(q, out_list):
         t = html_mod.unescape(re.sub(r"<[^>]+>", "", a)).strip()
         if u.startswith("http") and t and not is_ad(u, t):
             out_list.append({"src": "DDG", "url": u, "title": t, "snip": ""})
+    rep("DDG: %d, %d байт" % (len(out_list), len(r.text)))
 
 
 def load_page_text(url):
@@ -185,12 +189,16 @@ def load_page_text(url):
 
 def make_webview(url, on_start, on_end):
     if WV_CLASS is None:
+        rep("WebView: пакета нет")
         return None
-    for kw in (dict(on_page_started=on_start, on_page_ended=on_end, enable_javascript=True), dict(on_page_started=on_start, on_page_ended=on_end), dict()):
+    ev = dict(on_page_started=on_start, on_page_ended=on_end)
+    for i, kw in enumerate((dict(ev, enable_javascript=True), ev, {})):
         try:
-            return WV_CLASS(url=url, expand=True, **kw)
-        except Exception:
-            continue
+            w = WV_CLASS(url=url, expand=True, **kw)
+            rep("WebView %d: OK" % i)
+            return w
+        except Exception as e:
+            rep("WebView %d: %s" % (i, str(e)[:70]))
     return None
 
 
@@ -199,12 +207,32 @@ def P(k):
 
 
 def force_js(wv):
+    rep("JS: у WebView есть " + ", ".join(n for n in dir(wv) if "script" in n.lower())[:110])
     m = getattr(_fwv, "JavaScriptMode", None) or getattr(ft, "JavaScriptMode", None)
+    if m is None:
+        rep("JS: нет JavaScriptMode")
+        return
     try:
-        if m is not None:
-            wv.set_javascript_mode(m.UNRESTRICTED)
-            wv.update()
-            wv.reload()
+        wv.set_javascript_mode(m.UNRESTRICTED)
+        wv.update()
+        wv.reload()
+        rep("JS: включён")
+    except Exception as e:
+        rep("JS: ошибка " + str(e)[:80])
+
+
+def load_state(page):
+    try:
+        d = json.loads(page.client_storage.get("tir") or "{}")
+        S.update(d.get("S", {}))
+        HISTORY[:] = d.get("H", HISTORY)
+    except Exception:
+        pass
+
+
+def save_state(page):
+    try:
+        page.client_storage.set("tir", json.dumps({"S": S, "H": HISTORY[:12]}))
     except Exception:
         pass
 
@@ -335,20 +363,29 @@ def build_ui(page: ft.Page):
             set_mode("text")
             load_text()
 
+    def open_report():
+        d2 = ft.AlertDialog(title=ft.Text("Отчёт"), content=ft.Column([ft.Text("\n".join(REP) or "пусто: открой сайт или сделай поиск", selectable=True, size=12)], scroll=ft.ScrollMode.AUTO, width=320, height=380), actions=[ft.TextButton("Закрыть", on_click=lambda e: page.close(d2))])
+        page.open(d2)
+
     def open_settings():
         def chg(key):
             def h(e):
                 S[key] = e.control.value
+                save_state(page)
                 if key == "dark":
                     page.close(dlg)
                     page.clean()
                     build_ui(page)
             return h
+
+        def row(label, key):
+            return ft.Row([ft.Switch(value=S[key], on_change=chg(key)), ft.Text(label, expand=True, size=14)])
         dlg = ft.AlertDialog(title=ft.Text("Настройки"), content=ft.Column([
-            ft.Switch(label="Тёмная тема", value=S["dark"], on_change=chg("dark")),
-            ft.Switch(label="Страницы как текст (вместо сайта)", value=S["text"], on_change=chg("text")),
-            ft.Switch(label="Видеосайты (Rutube, YouTube) во внешнем браузере", value=S["video_ext"], on_change=chg("video_ext")),
-        ], tight=True), actions=[ft.TextButton("Закрыть", on_click=lambda e: page.close(dlg))])
+            row("Тёмная тема", "dark"),
+            row("Страницы как текст (вместо сайта)", "text"),
+            row("Видеосайты (Rutube, YouTube) во внешнем браузере", "video_ext"),
+            ft.TextButton("📋 Отчёт: JavaScript и поиск", on_click=lambda e: (page.close(dlg), open_report())),
+        ], tight=True, width=300), actions=[ft.TextButton("Закрыть", on_click=lambda e: page.close(dlg))])
         page.open(dlg)
 
     def render_card(item):
@@ -368,6 +405,7 @@ def build_ui(page: ft.Page):
             return
         if q not in HISTORY:
             HISTORY.insert(0, q)
+            save_state(page)
             update_chips()
         if q.startswith(("http://", "https://")) or ("." in q and " " not in q):
             open_link(q)
@@ -390,10 +428,7 @@ def build_ui(page: ft.Page):
                     if ans.get("answer"):
                         results.controls.append(T("⚡ Быстрый ответ", "acc", 16, weight=ft.FontWeight.BOLD))
                         results.controls.append(T(clean_txt(ans["answer"])[:400], "text", 14, selectable=True))
-                        if ans.get("src"):
-                            results.controls.append(ft.TextButton("📖 Читать полностью", on_click=lambda e, u=ans["src"], t=ans.get("title", ""): open_link(u, t)))
-                        results.controls.append(ft.Divider(color=P("dim")))
-                    results.controls.append(T("🔗 ИСТОЧНИКИ", "warn", 15, weight=ft.FontWeight.BOLD))
+                    results.controls.append(T("🔗 ИСТОЧНИКИ", "acc", 15, weight=ft.FontWeight.BOLD))
                     page.update()
                     cw, cd = [], []
                     jobs = [lambda: wiki_search_cards(q, cw), lambda: ddg_cards(q, cd)]
@@ -409,7 +444,7 @@ def build_ui(page: ft.Page):
                                 seen.add(v.get("url"))
                                 mixed.append(v)
                     if not mixed and not ans.get("answer"):
-                        results.controls.append(T("Ничего не найдено (проверьте интернет).", "sub"))
+                        results.controls.append(T("Ничего не найдено.", "sub"))
                     for item in mixed[:10]:
                         render_card(item)
                 spinner.visible = False
@@ -438,6 +473,7 @@ def build_ui(page: ft.Page):
 
 def main(page: ft.Page):
     try:
+        load_state(page)
         build_ui(page)
     except Exception:
         page.controls.clear()
