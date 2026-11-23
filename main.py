@@ -16,9 +16,9 @@ except Exception:
 
 SESSION = requests.Session()
 SESSION.trust_env = False
-VERSION = "v17.6"
+VERSION = "v17.7"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/122.0.0.0 Mobile Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/17.6", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/17.7", "Accept": "application/json"}
 AD_WORDS = ("реклама", "промо", "спонсор", "купить", "цена", "скидка", "акция", "заказать", "доставка", "кредит", "займ", "казино", "ставки", "услуги", "прайс", "an.yandex", "googleadservices", "doubleclick", "yabs.yandex", "cookie", "политика конфиденциальности", "войти", "регистрация")
 STOP_Q = ("когда", "кагда", "где", "кто", "что", "што", "как", "почему", "зачем", "сколько", "какой", "какая", "какие", "родился", "радился", "возраст", "лет", "года", "живет", "живут", "умер", "такое", "значит", "это", "ли", "в", "на", "по", "о", "об")
 HISTORY = ["Европейская норка", "100 долларов", "переведи breakthrough", "250 * 48"]
@@ -162,22 +162,34 @@ def wiki_search_cards(q, out_list):
         pass
 
 
-def rambler_cards(q, out_list):
-    seen = set()
+def ddg_cards(q, out_list):
     try:
-        r = http_get("https://nova.rambler.ru/search", params={"query": q}, headers=H_WEB)
-        if BeautifulSoup is not None and r is not None and r.status_code == 200:
-            soup = BeautifulSoup(r.text, "html.parser")
-            for a in soup.find_all("a", href=True):
-                if len(out_list) >= 6:
-                    break
-                u = a.get("href", "")
-                if not u.startswith("http") or "rambler.ru" in u or "yandex." in u or u in seen:
-                    continue
-                t = re.sub(r"\s+", " ", a.get_text(" ", strip=True)).strip()
-                if len(t) > 12 and not is_ad(u, t):
-                    seen.add(u)
-                    out_list.append({"src": "Рунет", "url": u, "title": t, "snip": ""})
+        r = http_get("https://html.duckduckgo.com/html/", params={"q": q, "kl": "ru-ru"}, headers=H_WEB, timeout=(4.0, 8.0))
+        if BeautifulSoup is None or r is None or r.status_code != 200:
+            return
+        for a in BeautifulSoup(r.text, "html.parser").select("a.result__a")[:6]:
+            u = a.get("href", "")
+            if "uddg=" in u:
+                u = urllib.parse.unquote(u.split("uddg=", 1)[1].split("&", 1)[0])
+            t = a.get_text(" ", strip=True)
+            box = a.find_parent(class_="result")
+            sn = box.select_one(".result__snippet") if box else None
+            if u.startswith("http") and t and not is_ad(u, t):
+                out_list.append({"src": "DDG", "url": u, "title": t, "snip": sn.get_text(" ", strip=True) if sn else ""})
+    except Exception:
+        pass
+
+
+def mojeek_cards(q, out_list):
+    try:
+        r = http_get("https://www.mojeek.com/search", params={"q": q}, headers=H_WEB, timeout=(4.0, 8.0))
+        if BeautifulSoup is None or r is None or r.status_code != 200:
+            return
+        for li in BeautifulSoup(r.text, "html.parser").select("ul.results-standard li")[:6]:
+            a = li.select_one("a.title") or li.find("a", href=True)
+            sn = li.select_one("p.s")
+            if a and a.get("href", "").startswith("http") and not is_ad(a["href"], a.get_text()):
+                out_list.append({"src": "Mojeek", "url": a["href"], "title": a.get_text(" ", strip=True), "snip": sn.get_text(" ", strip=True) if sn else ""})
     except Exception:
         pass
 
@@ -379,21 +391,21 @@ def build_ui(page: ft.Page):
                         results.controls.append(ft.Divider(color="#334155"))
                     results.controls.append(T("🔗 ИСТОЧНИКИ", "#FBBF24", 15, weight=ft.FontWeight.BOLD))
                     page.update()
-                    cw, cr = [], []
-                    ts = [threading.Thread(target=f, args=(q, c), daemon=True) for f, c in ((wiki_search_cards, cw), (rambler_cards, cr))]
+                    cw, cd, cm = [], [], []
+                    ts = [threading.Thread(target=f, args=(q, c), daemon=True) for f, c in ((wiki_search_cards, cw), (ddg_cards, cd), (mojeek_cards, cm))]
                     for t in ts:
                         t.start()
                     for t in ts:
                         t.join(8.0)
                     mixed, seen = [], set()
-                    for grp in zip(cw + [None] * 6, cr + [None] * 6):
+                    for grp in zip(cd + [None] * 6, cm + [None] * 6, cw + [None] * 6):
                         for v in grp:
                             if v and v.get("url") not in seen:
                                 seen.add(v.get("url"))
                                 mixed.append(v)
                     if not mixed and not ans.get("answer"):
                         results.controls.append(T("Ничего не найдено (проверьте интернет).", "#94A3B8"))
-                    for item in mixed[:8]:
+                    for item in mixed[:12]:
                         render_card(item)
                 spinner.visible = False
                 status.value = "Готово"
