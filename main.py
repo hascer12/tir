@@ -1,4 +1,5 @@
 import re, threading, urllib.parse, traceback
+import html as html_mod
 import requests, urllib3
 import flet as ft
 
@@ -12,22 +13,25 @@ try:
     import flet_webview as _fwv
     WV_CLASS = _fwv.WebView
 except Exception:
+    _fwv = None
     WV_CLASS = None
 
 SESSION = requests.Session()
 SESSION.trust_env = False
-VERSION = "v17.7"
+VERSION = "v17.9"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/122.0.0.0 Mobile Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/17.7", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/17.9", "Accept": "application/json"}
 AD_WORDS = ("реклама", "промо", "спонсор", "купить", "цена", "скидка", "акция", "заказать", "доставка", "кредит", "займ", "казино", "ставки", "услуги", "прайс", "an.yandex", "googleadservices", "doubleclick", "yabs.yandex", "cookie", "политика конфиденциальности", "войти", "регистрация")
 STOP_Q = ("когда", "кагда", "где", "кто", "что", "што", "как", "почему", "зачем", "сколько", "какой", "какая", "какие", "родился", "радился", "возраст", "лет", "года", "живет", "живут", "умер", "такое", "значит", "это", "ли", "в", "на", "по", "о", "об")
+LOGS, ERR = [], [""]
 HISTORY = ["Европейская норка", "100 долларов", "переведи breakthrough", "250 * 48"]
 
 
 def http_get(url, params=None, headers=None, timeout=(3.0, 6.0)):
     try:
         return SESSION.get(url, params=params, headers=headers, timeout=timeout, verify=False)
-    except Exception:
+    except Exception as e:
+        ERR[0] = str(e)[:50]
         return None
 
 
@@ -158,40 +162,42 @@ def wiki_search_cards(q, out_list):
             wu = "https://ru.wikipedia.org/wiki/" + urllib.parse.quote(wt)
             if wt and not is_ad(wu, wt):
                 out_list.append({"src": "Вики", "url": wu, "title": wt, "snip": ws})
-    except Exception:
-        pass
+        LOGS.append("Вики: " + str(len(out_list)))
+    except Exception as e:
+        LOGS.append("Вики: ошибка " + str(e)[:40])
 
 
-def ddg_cards(q, out_list):
+def unesc(x):
+    return html_mod.unescape(re.sub(r"<[^>]+>", "", x)).strip()
+
+
+def parse_links(page, cls):
+    res = []
+    for m in re.finditer(r"<a\b([^>]*)>(.*?)</a>", page, re.S):
+        if re.search(r'class="[^"]*\b' + cls + r'\b', m.group(1)):
+            h = re.search(r'href="([^"]+)"', m.group(1))
+            if h:
+                res.append((html_mod.unescape(h.group(1)), unesc(m.group(2))))
+    return res
+
+
+def search_cards(name, url, params, cls, snip_re, out_list):
+    n = 0
+    code = "?"
     try:
-        r = http_get("https://html.duckduckgo.com/html/", params={"q": q, "kl": "ru-ru"}, headers=H_WEB, timeout=(4.0, 8.0))
-        if BeautifulSoup is None or r is None or r.status_code != 200:
-            return
-        for a in BeautifulSoup(r.text, "html.parser").select("a.result__a")[:6]:
-            u = a.get("href", "")
-            if "uddg=" in u:
-                u = urllib.parse.unquote(u.split("uddg=", 1)[1].split("&", 1)[0])
-            t = a.get_text(" ", strip=True)
-            box = a.find_parent(class_="result")
-            sn = box.select_one(".result__snippet") if box else None
-            if u.startswith("http") and t and not is_ad(u, t):
-                out_list.append({"src": "DDG", "url": u, "title": t, "snip": sn.get_text(" ", strip=True) if sn else ""})
-    except Exception:
-        pass
-
-
-def mojeek_cards(q, out_list):
-    try:
-        r = http_get("https://www.mojeek.com/search", params={"q": q}, headers=H_WEB, timeout=(4.0, 8.0))
-        if BeautifulSoup is None or r is None or r.status_code != 200:
-            return
-        for li in BeautifulSoup(r.text, "html.parser").select("ul.results-standard li")[:6]:
-            a = li.select_one("a.title") or li.find("a", href=True)
-            sn = li.select_one("p.s")
-            if a and a.get("href", "").startswith("http") and not is_ad(a["href"], a.get_text()):
-                out_list.append({"src": "Mojeek", "url": a["href"], "title": a.get_text(" ", strip=True), "snip": sn.get_text(" ", strip=True) if sn else ""})
-    except Exception:
-        pass
+        r = http_get(url, params=params, headers=H_WEB, timeout=(4.0, 8.0))
+        code = r.status_code if r is not None else ERR[0]
+        if r is not None and r.status_code == 200:
+            sn = [unesc(x) for x in re.findall(snip_re, r.text, re.S)]
+            for i, (u, t) in enumerate(parse_links(r.text, cls)[:6]):
+                if "uddg=" in u:
+                    u = urllib.parse.unquote(u.split("uddg=", 1)[1].split("&", 1)[0])
+                if u.startswith("http") and t and not is_ad(u, t):
+                    out_list.append({"src": name, "url": u, "title": t, "snip": sn[i] if i < len(sn) else ""})
+                    n += 1
+    except Exception as e:
+        code = "ошибка " + str(e)[:40]
+    LOGS.append(name + ": " + str(code) + ", " + str(n))
 
 
 def load_page_text(url):
@@ -209,12 +215,34 @@ def load_page_text(url):
 def make_webview(url, on_start, on_end):
     if WV_CLASS is None:
         return None
-    for kw in (dict(on_page_started=on_start, on_page_ended=on_end, enable_javascript=True), dict(on_page_started=on_start, on_page_ended=on_end), dict()):
+    for kw in (dict(on_page_started=on_start, on_page_ended=on_end, enable_javascript=True), dict(on_page_started=on_start, on_page_ended=on_end, javascript_enabled=True), dict(on_page_started=on_start, on_page_ended=on_end), dict()):
         try:
             return WV_CLASS(url=url, expand=True, **kw)
         except Exception:
             continue
     return None
+
+
+def force_js(wv):
+    for n in ("enable_javascript", "javascript_enabled"):
+        try:
+            setattr(wv, n, True)
+        except Exception:
+            pass
+    ok = False
+    for m in (getattr(_fwv, "JavaScriptMode", None), getattr(ft, "JavaScriptMode", None)):
+        if m is not None and not ok:
+            try:
+                wv.set_javascript_mode(m.UNRESTRICTED)
+                ok = True
+            except Exception:
+                pass
+    try:
+        wv.update()
+        if ok:
+            wv.reload()
+    except Exception:
+        pass
 
 
 def T(text, color="#E2E8F0", size=13, **kw):
@@ -342,6 +370,7 @@ def build_ui(page: ft.Page):
             web_holder.content = wv
             r_spinner.visible = True
             set_mode("web")
+            threading.Timer(1.0, lambda: force_js(wv)).start()
         else:
             web_holder.content = None
             set_mode("text")
@@ -368,6 +397,7 @@ def build_ui(page: ft.Page):
         if q.startswith(("http://", "https://")) or ("." in q and " " not in q):
             open_link(q)
             return
+        LOGS.clear()
         spinner.visible = True
         status.value = "Ищем..."
         results.controls.clear()
@@ -392,7 +422,10 @@ def build_ui(page: ft.Page):
                     results.controls.append(T("🔗 ИСТОЧНИКИ", "#FBBF24", 15, weight=ft.FontWeight.BOLD))
                     page.update()
                     cw, cd, cm = [], [], []
-                    ts = [threading.Thread(target=f, args=(q, c), daemon=True) for f, c in ((wiki_search_cards, cw), (ddg_cards, cd), (mojeek_cards, cm))]
+                    jobs = [lambda: wiki_search_cards(q, cw),
+                            lambda: search_cards("DDG", "https://html.duckduckgo.com/html/", {"q": q, "kl": "ru-ru"}, "result__a", r'class="result__snippet"[^>]*>(.*?)</a>', cd),
+                            lambda: search_cards("Mojeek", "https://www.mojeek.com/search", {"q": q}, "title", r'<p class="s">(.*?)</p>', cm)]
+                    ts = [threading.Thread(target=j, daemon=True) for j in jobs]
                     for t in ts:
                         t.start()
                     for t in ts:
@@ -407,6 +440,7 @@ def build_ui(page: ft.Page):
                         results.controls.append(T("Ничего не найдено (проверьте интернет).", "#94A3B8"))
                     for item in mixed[:12]:
                         render_card(item)
+                    results.controls.append(T("Диагностика: bs4=" + ("да" if BeautifulSoup else "нет") + "; " + "; ".join(LOGS), "#64748B", 10, selectable=True))
                 spinner.visible = False
                 status.value = "Готово"
                 page.update()
