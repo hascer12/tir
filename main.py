@@ -26,12 +26,12 @@ except Exception as e:
 
 SESSION = requests.Session()
 SESSION.trust_env = False
-VERSION = "v17.9"
+VERSION = "v18.0"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/122.0.0.0 Mobile Safari/537.36"}
 AD_WORDS = ("реклама", "спонсор", "купить", "скидка", "казино", "ставки", "an.yandex", "doubleclick", "cookie", "войти", "регистрация")
 VIDEO_HOSTS = ("rutube.ru", "youtube.com", "youtu.be", "vk.com/video", "vkvideo.ru", "ok.ru/video")
-ENGINES = {"yandex": ("Яндекс", "https://yandex.ru/search/?text="), "google": ("Google", "https://www.google.com/search?q="), "bing": ("Bing", "https://www.bing.com/search?q=")}
-S = {"dark": True, "video_ext": True, "text": False, "engine": "yandex"}
+ENGINES = {"bing": ("Bing", "https://www.bing.com/search?q="), "ddg": ("DuckDuckGo", "https://html.duckduckgo.com/html/?q="), "mojeek": ("Mojeek", "https://www.mojeek.com/search?q="), "yandex": ("Яндекс", "https://yandex.ru/search/?text="), "google": ("Google", "https://www.google.com/search?q=")}
+S = {"dark": True, "video_ext": False, "all_ext": False, "text": False, "engine": "bing"}
 PAL = {
     True: dict(bg="#0F172A", field="#1E293B", text="#F8FAFC", sub="#94A3B8", link="#60A5FA", btn="#334155", acc="#38BDF8", dim="#64748B"),
     False: dict(bg="#F8FAFC", field="#FFFFFF", text="#0F172A", sub="#475569", link="#2563EB", btn="#E2E8F0", acc="#0284C7", dim="#94A3B8"),
@@ -122,9 +122,14 @@ def make_webview(url, on_start, on_end):
         rep("WebView: пакета нет")
         return None
     ev = dict(on_page_started=on_start, on_page_ended=on_end)
-    for i, kw in enumerate((dict(ev, enable_javascript=True), ev, {})):
+    con = dict(ev, enable_javascript=True, on_console_message=lambda e: rep("JS РАБОТАЕТ: " + str(getattr(e, "message", e.data))[:50]))
+    for i, kw in enumerate((con, dict(ev, enable_javascript=True), ev, {})):
         try:
             w = WV_CLASS(url=url, expand=True, **kw)
+            try:
+                w.javascript_enabled = True
+            except Exception:
+                pass
             rep("WebView %d: OK" % i)
             return w
         except Exception as e:
@@ -138,7 +143,7 @@ def P(k):
 
 def load_state(page):
     try:
-        d = json.loads(page.client_storage.get("tir") or "{}")
+        d = json.loads(page.client_storage.get("tir2") or "{}")
         S.update(d.get("S", {}))
         HISTORY[:] = d.get("H", HISTORY)
     except Exception:
@@ -147,7 +152,7 @@ def load_state(page):
 
 def save_state(page):
     try:
-        page.client_storage.set("tir", json.dumps({"S": S, "H": HISTORY[:12]}))
+        page.client_storage.set("tir2", json.dumps({"S": S, "H": HISTORY[:12]}))
     except Exception:
         pass
 
@@ -203,6 +208,13 @@ def build_ui(page: ft.Page):
     def on_end(e):
         r_spinner.visible = False
         page.update()
+        if not cur.get("jst"):
+            cur["jst"] = True
+            try:
+                e.control.run_javascript("console.log('tir-js-ok')")
+                rep("UA: " + str(e.control.get_user_agent())[-75:])
+            except Exception as ex:
+                rep("JS-тест: " + str(ex)[:60])
 
     def open_external():
         try:
@@ -259,8 +271,8 @@ def build_ui(page: ft.Page):
     def open_link(url, title="", web=False):
         if not url.startswith("http"):
             url = "https://" + url
-        cur.update(url=url, title=title, text_loaded=False)
-        if S["video_ext"] and any(h in url for h in VIDEO_HOSTS):
+        cur.update(url=url, title=title, text_loaded=False, jst=False)
+        if S["all_ext"] or (S["video_ext"] and any(h in url for h in VIDEO_HOSTS)):
             open_external()
             return
         wv = None if (S["text"] and not web) else make_webview(url, on_start, on_end)
@@ -298,6 +310,7 @@ def build_ui(page: ft.Page):
             return ft.Row([ft.Switch(value=S[key], on_change=chg(key)), ft.Text(label, expand=True, size=14)])
         dlg = ft.AlertDialog(title=ft.Text("Настройки"), content=ft.Column([
             row("Тёмная тема", "dark"),
+            row("Все сайты в обычном браузере (вместо Тира)", "all_ext"),
             ft.Dropdown(label="Поисковик", value=S["engine"], options=[ft.dropdown.Option(k, v[0]) for k, v in ENGINES.items()], on_change=chg("engine")),
             row("Страницы как текст (вместо сайта)", "text"),
             row("Видеосайты (Rutube, YouTube) во внешнем браузере", "video_ext"),
