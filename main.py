@@ -1,5 +1,4 @@
 import re, json, threading, urllib.parse, traceback
-import html as html_mod
 import requests, urllib3
 import flet as ft
 
@@ -29,11 +28,10 @@ SESSION = requests.Session()
 SESSION.trust_env = False
 VERSION = "v17.9"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/122.0.0.0 Mobile Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/17.9"}
 AD_WORDS = ("реклама", "спонсор", "купить", "скидка", "казино", "ставки", "an.yandex", "doubleclick", "cookie", "войти", "регистрация")
-STOP_Q = ("когда", "где", "кто", "что", "как", "почему", "сколько", "какой", "какая", "какие", "родился", "возраст", "лет", "такое", "это", "ли", "в", "на", "по", "о")
 VIDEO_HOSTS = ("rutube.ru", "youtube.com", "youtu.be", "vk.com/video", "vkvideo.ru", "ok.ru/video")
-S = {"dark": True, "video_ext": True, "text": False}
+ENGINES = {"yandex": ("Яндекс", "https://yandex.ru/search/?text="), "google": ("Google", "https://www.google.com/search?q="), "bing": ("Bing", "https://www.bing.com/search?q=")}
+S = {"dark": True, "video_ext": True, "text": False, "engine": "yandex"}
 PAL = {
     True: dict(bg="#0F172A", field="#1E293B", text="#F8FAFC", sub="#94A3B8", link="#60A5FA", btn="#334155", acc="#38BDF8", dim="#64748B"),
     False: dict(bg="#F8FAFC", field="#FFFFFF", text="#0F172A", sub="#475569", link="#2563EB", btn="#E2E8F0", acc="#0284C7", dim="#94A3B8"),
@@ -62,19 +60,6 @@ def clean_txt(raw):
         except Exception:
             pass
     return re.sub(r"<[^>]+>", " ", str(raw)).strip()
-
-
-def is_ad(u, t):
-    return any(w in (str(u) + " " + str(t)).lower() for w in AD_WORDS)
-
-
-def extract_topic(q):
-    words = [w for w in re.sub(r"[^\w\s-]", " ", q.lower()).split() if w not in STOP_Q and len(w) > 1]
-    return " ".join(words).strip() if words else q
-
-
-def get_domain(url):
-    return urllib.parse.urlparse(url).netloc or url[:30]
 
 
 def try_weather(q):
@@ -120,61 +105,6 @@ def try_math(q):
     return ""
 
 
-def wiki_summary(q, out, ev):
-    try:
-        r = http_get("https://ru.wikipedia.org/w/api.php", params={"action": "opensearch", "search": extract_topic(q), "limit": 1, "namespace": 0, "format": "json", "utf8": 1}, headers=H_API)
-        if r is None or r.status_code != 200:
-            return
-        data = r.json()
-        title = data[1][0] if len(data) > 1 and data[1] else None
-        if not title:
-            return
-        s = http_get("https://ru.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(title), headers=H_API)
-        if s is None or s.status_code != 200:
-            return
-        j = s.json()
-        ext = str(j.get("extract", "")).strip()
-        if ext and len(ext) > 30:
-            out["answer"], out["title"] = ext, title
-            out["src"] = j.get("content_urls", {}).get("desktop", {}).get("page", "")
-            ev.set()
-    except Exception:
-        pass
-
-
-def wiki_search_cards(q, out_list):
-    try:
-        r = http_get("https://ru.wikipedia.org/w/api.php", params={"action": "query", "list": "search", "srsearch": extract_topic(q), "srlimit": 6, "format": "json", "utf8": 1}, headers=H_API)
-        items = r.json().get("query", {}).get("search", []) if r is not None and r.status_code == 200 else []
-        for w in items:
-            wt, ws = w.get("title", ""), clean_txt(w.get("snippet", ""))
-            wu = "https://ru.wikipedia.org/wiki/" + urllib.parse.quote(wt)
-            if wt and not is_ad(wu, wt):
-                out_list.append({"src": "Вики", "url": wu, "title": wt, "snip": ws})
-        rep("Вики: %d" % len(out_list))
-    except Exception as e:
-        rep("Вики: " + str(e)[:50])
-
-
-def ddg_cards(q, out_list):
-    r = http_get("https://html.duckduckgo.com/html/", params={"q": q, "kl": "ru-ru"}, headers=H_WEB, timeout=(4.0, 8.0))
-    if r is None or r.status_code != 200:
-        rep("DDG: " + ("нет ответа" if r is None else str(r.status_code)))
-        return
-    for m in re.finditer(r"<a\b[^>]*result__a[^>]*>.*?</a>", r.text, re.S):
-        a = m.group(0)
-        h = re.search(r'href="([^"]+)"', a)
-        if not h or len(out_list) >= 6:
-            continue
-        u = html_mod.unescape(h.group(1))
-        if "uddg=" in u:
-            u = urllib.parse.unquote(u.split("uddg=", 1)[1].split("&", 1)[0])
-        t = html_mod.unescape(re.sub(r"<[^>]+>", "", a)).strip()
-        if u.startswith("http") and t and not is_ad(u, t):
-            out_list.append({"src": "DDG", "url": u, "title": t, "snip": ""})
-    rep("DDG: %d, %d байт" % (len(out_list), len(r.text)))
-
-
 def load_page_text(url):
     r = http_get(url, headers=H_WEB, timeout=(4.0, 10.0))
     if r is None:
@@ -204,21 +134,6 @@ def make_webview(url, on_start, on_end):
 
 def P(k):
     return PAL[S["dark"]].get(k, k)
-
-
-def force_js(wv):
-    rep("JS: у WebView есть " + ", ".join(n for n in dir(wv) if "script" in n.lower())[:110])
-    m = getattr(_fwv, "JavaScriptMode", None) or getattr(ft, "JavaScriptMode", None)
-    if m is None:
-        rep("JS: нет JavaScriptMode")
-        return
-    try:
-        wv.set_javascript_mode(m.UNRESTRICTED)
-        wv.update()
-        wv.reload()
-        rep("JS: включён")
-    except Exception as e:
-        rep("JS: ошибка " + str(e)[:80])
 
 
 def load_state(page):
@@ -341,16 +256,18 @@ def build_ui(page: ft.Page):
             page.views.remove(reader_view)
         page.update()
 
-    def open_link(url, title=""):
+    def open_link(url, title="", web=False):
         if not url.startswith("http"):
             url = "https://" + url
-        url = url.replace("//ru.wikipedia.org", "//ru.m.wikipedia.org")
         cur.update(url=url, title=title, text_loaded=False)
         if S["video_ext"] and any(h in url for h in VIDEO_HOSTS):
             open_external()
             return
+        wv = None if (S["text"] and not web) else make_webview(url, on_start, on_end)
+        if wv is None and web:
+            open_external()
+            return
         r_body.controls.clear()
-        wv = None if S["text"] else make_webview(url, on_start, on_end)
         cur["wv"] = wv
         web_holder.content = wv
         if reader_view not in page.views:
@@ -358,7 +275,6 @@ def build_ui(page: ft.Page):
         if wv is not None:
             r_spinner.visible = True
             set_mode("web")
-            threading.Timer(1.0, lambda: force_js(wv)).start()
         else:
             set_mode("text")
             load_text()
@@ -382,22 +298,12 @@ def build_ui(page: ft.Page):
             return ft.Row([ft.Switch(value=S[key], on_change=chg(key)), ft.Text(label, expand=True, size=14)])
         dlg = ft.AlertDialog(title=ft.Text("Настройки"), content=ft.Column([
             row("Тёмная тема", "dark"),
+            ft.Dropdown(label="Поисковик", value=S["engine"], options=[ft.dropdown.Option(k, v[0]) for k, v in ENGINES.items()], on_change=chg("engine")),
             row("Страницы как текст (вместо сайта)", "text"),
             row("Видеосайты (Rutube, YouTube) во внешнем браузере", "video_ext"),
             ft.TextButton("📋 Отчёт: JavaScript и поиск", on_click=lambda e: (page.close(dlg), open_report())),
         ], tight=True, width=300), actions=[ft.TextButton("Закрыть", on_click=lambda e: page.close(dlg))])
         page.open(dlg)
-
-    def render_card(item):
-        title, url, src = item.get("title", "")[:60], item.get("url", ""), item.get("src", "")
-        snip = item.get("snip", "")[:120]
-        results.controls.append(ft.Container(
-            content=ft.Column([T("🔗 " + title, "link", 13, weight=ft.FontWeight.BOLD), T(get_domain(url) + "  •  " + src, "dim", 10)], spacing=2),
-            padding=ft.padding.symmetric(horizontal=8, vertical=6), ink=True,
-            on_click=lambda e, u=url, t=title: open_link(u, t)))
-        if snip:
-            results.controls.append(ft.Container(T(snip, "sub", 12), padding=ft.padding.only(left=12, right=8)))
-        results.controls.append(ft.Divider(color=P("dim"), height=4))
 
     def run_search():
         q = (ent.value or "").strip()
@@ -410,53 +316,23 @@ def build_ui(page: ft.Page):
         if q.startswith(("http://", "https://")) or ("." in q and " " not in q):
             open_link(q)
             return
+        results.controls.clear()
         spinner.visible = True
         status.value = "Ищем..."
-        results.controls.clear()
         page.update()
-
-        def worker():
-            try:
-                m_ans = try_math(q) or try_smart_tools(q) or try_weather(q)
-                if m_ans:
-                    results.controls.append(T("⚡ Ответ", "acc", 16, weight=ft.FontWeight.BOLD))
-                    results.controls.append(T(m_ans, "text", 14, selectable=True))
-                else:
-                    ans, ev = {}, threading.Event()
-                    threading.Thread(target=wiki_summary, args=(q, ans, ev), daemon=True).start()
-                    ev.wait(6.0)
-                    if ans.get("answer"):
-                        results.controls.append(T("⚡ Быстрый ответ", "acc", 16, weight=ft.FontWeight.BOLD))
-                        results.controls.append(T(clean_txt(ans["answer"])[:400], "text", 14, selectable=True))
-                    results.controls.append(T("🔗 ИСТОЧНИКИ", "acc", 15, weight=ft.FontWeight.BOLD))
-                    page.update()
-                    cw, cd = [], []
-                    jobs = [lambda: wiki_search_cards(q, cw), lambda: ddg_cards(q, cd)]
-                    ts = [threading.Thread(target=j, daemon=True) for j in jobs]
-                    for t in ts:
-                        t.start()
-                    for t in ts:
-                        t.join(8.0)
-                    mixed, seen = [], set()
-                    for grp in zip(cd + [None] * 6, cw + [None] * 6):
-                        for v in grp:
-                            if v and v.get("url") not in seen:
-                                seen.add(v.get("url"))
-                                mixed.append(v)
-                    if not mixed and not ans.get("answer"):
-                        results.controls.append(T("Ничего не найдено.", "sub"))
-                    for item in mixed[:10]:
-                        render_card(item)
-                spinner.visible = False
-                status.value = "Готово"
-                page.update()
-            except Exception:
-                spinner.visible = False
-                status.value = "Ошибка поиска"
-                results.controls.append(T(traceback.format_exc(), "#F87171", 11, selectable=True))
-                page.update()
-
-        threading.Thread(target=worker, daemon=True).start()
+        try:
+            m_ans = try_math(q) or try_smart_tools(q) or try_weather(q)
+        except Exception:
+            m_ans = ""
+        spinner.visible = False
+        status.value = "Готово"
+        if m_ans:
+            results.controls.append(T("⚡ Ответ", "acc", 16, weight=ft.FontWeight.BOLD))
+            results.controls.append(T(m_ans, "text", 14, selectable=True))
+            page.update()
+        else:
+            page.update()
+            open_link(ENGINES[S["engine"]][1] + urllib.parse.quote(q), "Поиск", True)
 
     def pick(v):
         ent.value = v
