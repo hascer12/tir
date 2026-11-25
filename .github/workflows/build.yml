@@ -45,7 +45,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.find.outputs.apk }}
-          tag_name: v18.1
-          name: Tir Browser v18.1
+          tag_name: v18.2
+          name: Tir Browser v18.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
