@@ -42,7 +42,7 @@ HISTORY = ["Европейская норка", "100 долларов", "пог�
 
 def http_get(url, params=None, headers=None, timeout=(3.0, 6.0)):
     try:
-        return SESSION.get(url, params=params, headers=headers, timeout=timeout, verify=False)
+        return SESSION.get(url, params=params, headers=headers or H_WEB, timeout=timeout, verify=False)
     except Exception:
         return None
 
@@ -142,7 +142,7 @@ def wiki_search_cards(q, out_list):
         for w in items:
             wt, ws = w.get("title", ""), clean_txt(w.get("snippet", ""))
             out_list.append({"src": "Вики", "url": "https://ru.wikipedia.org/wiki/" + urllib.parse.quote(wt), "title": wt, "snip": ws})
-        rep("Вики: %d" % len(out_list))
+        rep("Вики: %d (ответ %s)" % (len(out_list), "нет" if r is None else r.status_code))
     except Exception as e:
         rep("Вики: " + str(e)[:50])
 
@@ -403,9 +403,8 @@ def build_ui(page: ft.Page):
                 results.controls.append(T(m_ans, "text", 14, selectable=True))
             else:
                 ans, cw = {}, []
-                srcs = (("Mojeek", "https://www.mojeek.com/search", {"q": q}, r'(<a\b[^>]*class="[^"]*\btitle\b[^>]*>.*?</a>)'),
-                        ("Bing", "https://www.bing.com/search", {"q": q, "setlang": "ru"}, r'<li class="b_algo".*?(<a\b[^>]*href="[^"]+"[^>]*>.*?</a>)'))
-                outs = [[], []]
+                srcs = (("Bing", "https://www.bing.com/search", {"q": q, "setlang": "ru"}, r'<li class="b_algo[^"]*"[^>]*>.*?(<a\b[^>]*href="[^"]+"[^>]*>.*?</a>)'),)
+                outs = [[]]
                 jobs = [lambda: wiki_summary(q, ans), lambda: wiki_search_cards(q, cw)] + [lambda s=s, o=o: web_one(*s, o) for s, o in zip(srcs, outs)]
                 ts = [threading.Thread(target=j, daemon=True) for j in jobs]
                 for t in ts:
