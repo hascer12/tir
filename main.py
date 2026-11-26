@@ -29,6 +29,7 @@ SESSION = requests.Session()
 SESSION.trust_env = False
 VERSION = "v18.1"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/122.0.0.0 Mobile Safari/537.36"}
+H_API = {"User-Agent": "TirBrowser/18.1 (Android app)", "Accept": "application/json"}
 STOP_Q = ("когда", "где", "кто", "что", "как", "почему", "сколько", "какой", "какая", "какие", "родился", "возраст", "лет", "такое", "это", "ли", "в", "на", "по", "о")
 AD_WORDS = ("реклама", "спонсор", "купить", "скидка", "казино", "ставки", "an.yandex", "doubleclick", "cookie", "войти", "регистрация")
 VIDEO_HOSTS = ("rutube.ru", "youtube.com", "youtu.be", "vk.com/video", "vkvideo.ru", "ok.ru/video")
@@ -121,12 +122,12 @@ def get_domain(url):
 
 def wiki_summary(q, out):
     try:
-        r = http_get("https://ru.wikipedia.org/w/api.php", params={"action": "opensearch", "search": extract_topic(q), "limit": 1, "namespace": 0, "format": "json", "utf8": 1})
+        r = http_get("https://ru.wikipedia.org/w/api.php", params={"action": "opensearch", "search": extract_topic(q), "limit": 1, "namespace": 0, "format": "json", "utf8": 1}, headers=H_API)
         data = r.json() if r is not None and r.status_code == 200 else []
         title = data[1][0] if len(data) > 1 and data[1] else None
         if not title:
             return
-        r2 = http_get("https://ru.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(title))
+        r2 = http_get("https://ru.wikipedia.org/api/rest_v1/page/summary/" + urllib.parse.quote(title), headers=H_API)
         j = r2.json() if r2 is not None and r2.status_code == 200 else {}
         ext = str(j.get("extract", "")).strip()
         if len(ext) > 30:
@@ -137,7 +138,7 @@ def wiki_summary(q, out):
 
 def wiki_search_cards(q, out_list):
     try:
-        r = http_get("https://ru.wikipedia.org/w/api.php", params={"action": "query", "list": "search", "srsearch": extract_topic(q), "srlimit": 6, "format": "json", "utf8": 1})
+        r = http_get("https://ru.wikipedia.org/w/api.php", params={"action": "query", "list": "search", "srsearch": extract_topic(q), "srlimit": 6, "format": "json", "utf8": 1}, headers=H_API)
         items = r.json().get("query", {}).get("search", []) if r is not None and r.status_code == 200 else []
         for w in items:
             wt, ws = w.get("title", ""), clean_txt(w.get("snippet", ""))
@@ -165,7 +166,7 @@ def web_one(name, url, params, pat, out):
             except Exception:
                 continue
         t = html_mod.unescape(re.sub(r"<[^>]+>", "", a)).strip()
-        if u.startswith("http") and t and not is_ad(u, t):
+        if u.startswith("http") and t and "bing.com" not in get_domain(u) and not is_ad(u, t):
             out.append({"src": name, "url": u, "title": t, "snip": ""})
     rep("%s: %d, %d байт" % (name, len(out), len(r.text)))
 
@@ -403,7 +404,7 @@ def build_ui(page: ft.Page):
                 results.controls.append(T(m_ans, "text", 14, selectable=True))
             else:
                 ans, cw = {}, []
-                srcs = (("Bing", "https://www.bing.com/search", {"q": q, "setlang": "ru"}, r'<li class="b_algo[^"]*"[^>]*>.*?(<a\b[^>]*href="[^"]+"[^>]*>.*?</a>)'),)
+                srcs = (("Bing", "https://www.bing.com/search", {"q": q, "setlang": "ru"}, r'<h2[^>]*>\s*(<a\b[^>]*href="[^"]+"[^>]*>.*?</a>)'),)
                 outs = [[]]
                 jobs = [lambda: wiki_summary(q, ans), lambda: wiki_search_cards(q, cw)] + [lambda s=s, o=o: web_one(*s, o) for s, o in zip(srcs, outs)]
                 ts = [threading.Thread(target=j, daemon=True) for j in jobs]
