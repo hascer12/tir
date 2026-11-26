@@ -27,7 +27,7 @@ except Exception as e:
 
 SESSION = requests.Session()
 SESSION.trust_env = False
-VERSION = "v18.2"
+VERSION = "v18.3"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/122.0.0.0 Mobile Safari/537.36"}
 H_API = {"User-Agent": "TirBrowser/18.2 (Android app)", "Accept": "application/json"}
 STOP_Q = ("когда", "где", "кто", "что", "как", "почему", "сколько", "какой", "какая", "какие", "родился", "возраст", "лет", "такое", "это", "ли", "в", "на", "по", "о")
