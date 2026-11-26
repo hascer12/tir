@@ -27,9 +27,9 @@ except Exception as e:
 
 SESSION = requests.Session()
 SESSION.trust_env = False
-VERSION = "v18.1"
+VERSION = "v18.2"
 H_WEB = {"User-Agent": "Mozilla/5.0 (Linux; Android 13) AppleWebKit/537.36 Chrome/122.0.0.0 Mobile Safari/537.36"}
-H_API = {"User-Agent": "TirBrowser/18.1 (Android app)", "Accept": "application/json"}
+H_API = {"User-Agent": "TirBrowser/18.2 (Android app)", "Accept": "application/json"}
 STOP_Q = ("когда", "где", "кто", "что", "как", "почему", "сколько", "какой", "какая", "какие", "родился", "возраст", "лет", "такое", "это", "ли", "в", "на", "по", "о")
 AD_WORDS = ("реклама", "спонсор", "купить", "скидка", "казино", "ставки", "an.yandex", "doubleclick", "cookie", "войти", "регистрация")
 VIDEO_HOSTS = ("rutube.ru", "youtube.com", "youtu.be", "vk.com/video", "vkvideo.ru", "ok.ru/video")
@@ -148,30 +148,27 @@ def wiki_search_cards(q, out_list):
         rep("Вики: " + str(e)[:50])
 
 
-def web_one(name, url, params, pats, out):
+def web_one(name, url, params, sel, out):
     r = http_get(url, params=params, headers=H_WEB, timeout=(4.0, 8.0))
     if r is None or r.status_code != 200:
         rep(name + ": " + ("нет ответа" if r is None else str(r.status_code)))
         return
-    for pat in pats:
-        for m in re.finditer(pat, r.text, re.S):
-            a = m.group(1)
-            h = re.search(r'href="([^"]+)"', a)
-            if not h or len(out) >= 6:
+    if BeautifulSoup is None:
+        rep(name + ": нет bs4")
+        return
+    soup = BeautifulSoup(r.text, "html.parser")
+    for a in soup.select(sel[0]) or soup.select(sel[1]):
+        u = html_mod.unescape(a.get("href", ""))
+        if "bing.com/ck/a" in u:
+            b = urllib.parse.parse_qs(urllib.parse.urlparse(u).query).get("u", [""])[0][2:]
+            try:
+                u = base64.urlsafe_b64decode(b + "=" * (-len(b) % 4)).decode()
+            except Exception:
                 continue
-            u = html_mod.unescape(h.group(1))
-            if "bing.com/ck/a" in u:
-                b = urllib.parse.parse_qs(urllib.parse.urlparse(u).query).get("u", [""])[0][2:]
-                try:
-                    u = base64.urlsafe_b64decode(b + "=" * (-len(b) % 4)).decode()
-                except Exception:
-                    continue
-            t = html_mod.unescape(re.sub(r"<[^>]+>", "", a)).strip()
-            if u.startswith("http") and t and "bing.com" not in get_domain(u) and not is_ad(u, t):
-                out.append({"src": name, "url": u, "title": t, "snip": ""})
-        if out:
-            break
-    rep("%s: %d, %d байт" % (name, len(out), len(r.text)))
+        t = a.get_text(" ", strip=True)
+        if len(out) < 6 and u.startswith("http") and t and "bing.com" not in get_domain(u) and not is_ad(u, t):
+            out.append({"src": name, "url": u, "title": t, "snip": ""})
+    rep("%s: %d, %d байт, %s" % (name, len(out), len(r.text), (soup.title.string if soup.title and soup.title.string else "")[:40]))
 
 
 def load_page_text(url):
@@ -407,7 +404,7 @@ def build_ui(page: ft.Page):
                 results.controls.append(T(m_ans, "text", 14, selectable=True))
             else:
                 ans, cw = {}, []
-                srcs = (("Bing", "https://www.bing.com/search", {"q": q, "setlang": "ru"}, (r'<h2[^>]*>\s*(<a\b[^>]*href="[^"]+"[^>]*>.*?</a>)', r'<li class="b_algo[^"]*"[^>]*>.*?(<a\b[^>]*href="[^"]+"[^>]*>.*?</a>)')),)
+                srcs = (("Bing", "https://www.bing.com/search", {"q": q, "setlang": "ru"}, ("li.b_algo h2 a[href]", "h2 a[href]")),)
                 outs = [[]]
                 jobs = [lambda: wiki_summary(q, ans), lambda: wiki_search_cards(q, cw)] + [lambda s=s, o=o: web_one(*s, o) for s, o in zip(srcs, outs)]
                 ts = [threading.Thread(target=j, daemon=True) for j in jobs]
