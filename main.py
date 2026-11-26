@@ -148,26 +148,29 @@ def wiki_search_cards(q, out_list):
         rep("Вики: " + str(e)[:50])
 
 
-def web_one(name, url, params, pat, out):
+def web_one(name, url, params, pats, out):
     r = http_get(url, params=params, headers=H_WEB, timeout=(4.0, 8.0))
     if r is None or r.status_code != 200:
         rep(name + ": " + ("нет ответа" if r is None else str(r.status_code)))
         return
-    for m in re.finditer(pat, r.text, re.S):
-        a = m.group(1)
-        h = re.search(r'href="([^"]+)"', a)
-        if not h or len(out) >= 6:
-            continue
-        u = html_mod.unescape(h.group(1))
-        if "bing.com/ck/a" in u:
-            b = urllib.parse.parse_qs(urllib.parse.urlparse(u).query).get("u", [""])[0][2:]
-            try:
-                u = base64.urlsafe_b64decode(b + "=" * (-len(b) % 4)).decode()
-            except Exception:
+    for pat in pats:
+        for m in re.finditer(pat, r.text, re.S):
+            a = m.group(1)
+            h = re.search(r'href="([^"]+)"', a)
+            if not h or len(out) >= 6:
                 continue
-        t = html_mod.unescape(re.sub(r"<[^>]+>", "", a)).strip()
-        if u.startswith("http") and t and "bing.com" not in get_domain(u) and not is_ad(u, t):
-            out.append({"src": name, "url": u, "title": t, "snip": ""})
+            u = html_mod.unescape(h.group(1))
+            if "bing.com/ck/a" in u:
+                b = urllib.parse.parse_qs(urllib.parse.urlparse(u).query).get("u", [""])[0][2:]
+                try:
+                    u = base64.urlsafe_b64decode(b + "=" * (-len(b) % 4)).decode()
+                except Exception:
+                    continue
+            t = html_mod.unescape(re.sub(r"<[^>]+>", "", a)).strip()
+            if u.startswith("http") and t and "bing.com" not in get_domain(u) and not is_ad(u, t):
+                out.append({"src": name, "url": u, "title": t, "snip": ""})
+        if out:
+            break
     rep("%s: %d, %d байт" % (name, len(out), len(r.text)))
 
 
@@ -404,7 +407,7 @@ def build_ui(page: ft.Page):
                 results.controls.append(T(m_ans, "text", 14, selectable=True))
             else:
                 ans, cw = {}, []
-                srcs = (("Bing", "https://www.bing.com/search", {"q": q, "setlang": "ru"}, r'<h2[^>]*>\s*(<a\b[^>]*href="[^"]+"[^>]*>.*?</a>)'),)
+                srcs = (("Bing", "https://www.bing.com/search", {"q": q, "setlang": "ru"}, (r'<h2[^>]*>\s*(<a\b[^>]*href="[^"]+"[^>]*>.*?</a>)', r'<li class="b_algo[^"]*"[^>]*>.*?(<a\b[^>]*href="[^"]+"[^>]*>.*?</a>)')),)
                 outs = [[]]
                 jobs = [lambda: wiki_summary(q, ans), lambda: wiki_search_cards(q, cw)] + [lambda s=s, o=o: web_one(*s, o) for s, o in zip(srcs, outs)]
                 ts = [threading.Thread(target=j, daemon=True) for j in jobs]
